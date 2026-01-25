@@ -4,6 +4,43 @@ Tutte le modifiche rilevanti al progetto Fuel Logistics Management System sarann
 
 Il formato segue [Keep a Changelog](https://keepachangelog.com/it/1.0.0/).
 
+## [1.2.0] - 2026-01-25
+
+### Aggiunto
+
+#### Frontend
+
+- **Pannello Dettaglio Viaggio** (`src/pages/ScheduleDetail.tsx`)
+  - Layout split-view: calendario sopra (compatto), dettaglio sotto
+  - Click su evento calendario → mostra pannello dettaglio (no più modal)
+  - Colonna sinistra: info viaggio (autista, motrice, cisterne con badge pickup/sgancio)
+  - Colonna destra: cronologia viaggio con timeline visuale
+
+- **Cronologia Viaggio con Timeline**
+  - Timeline verticale con tutte le tappe del viaggio
+  - Orari calcolati automaticamente dai percorsi configurati
+  - Icone colorate per tipo azione: partenza, arrivo, carico, scarico, sgancio, pickup
+  - **Icone cisterne piene/vuote**: rettangoli con bordo grigio (vuota) o ambra con pallino (piena)
+  - Legenda visuale in fondo alla timeline
+
+- **Flusso Operativo Corretto**
+  - Base operativa = Livigno (non Milano)
+  - Vincolo montagna: Livigno ↔ Tirano max 1 cisterna
+  - Timeline mostra: partenza Livigno con 1 cisterna → aggancio 2° a Tirano → Milano → ritorno
+
+### Modificato
+
+- **Calendario** ridotto a 350px di altezza per fare spazio al pannello dettaglio
+- **Dialog viaggio** semplificato: solo per creazione/modifica, senza timeline
+- **Documentazione** (`DOCS.md`) aggiornata con flusso operativo corretto
+
+### Corretto
+
+- **Bug timeline**: ora mostra correttamente 1 cisterna alla partenza da Livigno (vincolo montagna)
+- **Unused variables**: rimossi warning TypeScript per variabili non utilizzate
+
+---
+
 ## [1.1.0] - 2026-01-25
 
 ### Aggiunto
@@ -155,7 +192,7 @@ Il formato segue [Keep a Changelog](https://keepachangelog.com/it/1.0.0/).
 
 #### Infrastruttura
 
-- **Docker Compose** per PostgreSQL 15
+- **PostgreSQL 15+** (locale via Homebrew)
 - **Configurazione TypeScript** per backend e frontend
 - **Tailwind CSS** con tema personalizzato Shadcn
 - **Vite** con proxy API per sviluppo
@@ -182,7 +219,7 @@ fuel-logistics/
 │       ├── types/          # TypeScript interfaces
 │       └── lib/            # Utilities
 │
-└── docker-compose.yml
+└── start.sh                   # Script avvio
 ```
 
 ### Note Tecniche

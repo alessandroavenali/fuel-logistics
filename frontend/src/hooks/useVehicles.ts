@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { vehiclesApi } from '@/api/client';
-import type { Vehicle, CreateVehicleInput } from '@/types';
+import type { CreateVehicleInput } from '@/types';
 
 export function useVehicles(isActive?: boolean) {
   return useQuery({

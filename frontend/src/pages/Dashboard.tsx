@@ -29,7 +29,6 @@ export default function Dashboard() {
   const activeSchedules = schedules?.filter(
     (s: any) => s.status === 'DRAFT' || s.status === 'CONFIRMED'
   );
-  const upcomingTrips = activeSchedules?.flatMap((s: any) => s.trips || []).slice(0, 5);
 
   return (
     <div className="space-y-6">

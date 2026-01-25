@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Calendar, dateFnsLocalizer, Views } from 'react-big-calendar';
-import { format, parse, startOfWeek, getDay } from 'date-fns';
+import { format, parse, startOfWeek, getDay, addMinutes } from 'date-fns';
 import { it } from 'date-fns/locale';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -36,6 +36,7 @@ import { useDriversAvailability } from '@/hooks/useDrivers';
 import { useVehiclesStatus } from '@/hooks/useVehicles';
 import { useTrailersStatus } from '@/hooks/useTrailers';
 import { useLocations } from '@/hooks/useLocations';
+import { useRoutes } from '@/hooks/useRoutes';
 import { useToast } from '@/hooks/useToast';
 import {
   Wand2,
@@ -50,6 +51,9 @@ import {
   CircleDot,
   ArrowDown,
   ArrowUp,
+  Clock,
+  MapPin,
+  Fuel,
 } from 'lucide-react';
 import {
   formatDate,
@@ -59,7 +63,7 @@ import {
   getStatusColor,
   getDriverTypeLabel,
 } from '@/lib/utils';
-import type { Trip, Location, ValidationResult, TrailerStatus, VehicleStatus, DriverAvailability } from '@/types';
+import type { Trip, Location, ValidationResult, TrailerStatus, VehicleStatus, DriverAvailability, Route } from '@/types';
 
 const locales = { it };
 const localizer = dateFnsLocalizer({
@@ -92,11 +96,230 @@ export default function ScheduleDetail() {
   const { data: vehiclesStatus } = useVehiclesStatus({ scheduleId: id });
   const { data: trailersStatus } = useTrailersStatus(id);
   const { data: locations } = useLocations({ isActive: true });
+  const { data: routes } = useRoutes(true);
 
   const parkingLocation = useMemo(() =>
     locations?.find((l: Location) => l.type === 'PARKING'),
     [locations]
   );
+
+  const sourceLocation = useMemo(() =>
+    locations?.find((l: Location) => l.type === 'SOURCE'),
+    [locations]
+  );
+
+  const destinationLocation = useMemo(() =>
+    locations?.find((l: Location) => l.type === 'DESTINATION'),
+    [locations]
+  );
+
+  // Build route lookup maps
+  const routeMap = useMemo(() => {
+    if (!routes) return null;
+    const map: Record<string, Route> = {};
+    routes.forEach((r: Route) => {
+      const key = `${r.fromLocationId}-${r.toLocationId}`;
+      map[key] = r;
+    });
+    return map;
+  }, [routes]);
+
+  // Calculate trip timeline based on routes and trailer operations
+  // FLOW: Base is Livigno. Trucks go to Milano to load fuel, then return.
+  // Constraint: Livigno <-> Tirano = max 1 trailer (mountain road)
+  //             Tirano <-> Milano = max 2 trailers
+  const calculateTimeline = useMemo(() => {
+    return (trip: Trip | null) => {
+      if (!trip || !routeMap || !sourceLocation || !parkingLocation || !destinationLocation) {
+        return [];
+      }
+
+      const timeline: Array<{
+        time: Date;
+        location: string;
+        action: string;
+        icon: 'start' | 'arrive' | 'depart' | 'dropoff' | 'pickup' | 'load' | 'unload' | 'end';
+        details?: string;
+        trailers?: Array<{ plate: string; full: boolean }>;
+      }> = [];
+
+      // All trailers for this trip
+      const allTrailers = trip.trailers || [];
+      const totalLiters = allTrailers.reduce((sum, t) => sum + t.litersLoaded, 0);
+
+      // Trailers dropped off at Tirano (on return, full)
+      const dropOffTrailers = allTrailers.filter(t => t.dropOffLocationId);
+
+      // CONSTRAINT: Livigno <-> Tirano = max 1 trailer
+      // First trailer starts from Livigno, additional trailers are picked up at Tirano
+      const firstTrailer = allTrailers.length > 0 ? [allTrailers[0]] : [];
+      const tiranoPickupTrailers = allTrailers.slice(1); // All others picked up at Tirano
+
+      let currentTime = new Date(trip.departureTime);
+
+      // Durations (in minutes)
+      const LOAD_TIME = 30;
+      const UNLOAD_TIME = 30;
+      const DROPOFF_TIME = 15;
+      const PICKUP_TIME = 15;
+
+      // Get route duration
+      const getRouteDuration = (fromId: string, toId: string): number => {
+        const route = routeMap[`${fromId}-${toId}`];
+        return route?.durationMinutes || 60; // fallback
+      };
+
+      // Helper to get trailer info
+      const getTrailerPlates = (trailers: typeof trip.trailers, full: boolean) =>
+        trailers?.map(t => ({ plate: t.trailer?.plate || '?', full })) || [];
+
+      // === OUTBOUND: Livigno -> Milano (empty trailers) ===
+
+      // 1. Departure from Livigno (base) with max 1 empty trailer (mountain constraint)
+      timeline.push({
+        time: new Date(currentTime),
+        location: destinationLocation.name,
+        action: 'Partenza',
+        icon: 'start',
+        trailers: getTrailerPlates(firstTrailer, false),
+      });
+
+      // 2. Livigno -> Tirano
+      const livignoTiranoTime = getRouteDuration(destinationLocation.id, parkingLocation.id);
+      currentTime = addMinutes(currentTime, livignoTiranoTime);
+
+      timeline.push({
+        time: new Date(currentTime),
+        location: parkingLocation.name,
+        action: 'Arrivo',
+        icon: 'arrive',
+        trailers: getTrailerPlates(firstTrailer, false),
+      });
+
+      // 3. If picking up additional trailers at Tirano (empty, for loading at Milano)
+      if (tiranoPickupTrailers.length > 0) {
+        timeline.push({
+          time: new Date(currentTime),
+          location: parkingLocation.name,
+          action: tiranoPickupTrailers.length === 1 ? 'Aggancio cisterna' : 'Aggancio cisterne',
+          icon: 'pickup',
+          trailers: getTrailerPlates(tiranoPickupTrailers, false),
+        });
+        currentTime = addMinutes(currentTime, PICKUP_TIME * tiranoPickupTrailers.length);
+      }
+
+      // 4. Departure from Tirano toward Milano (now with all trailers)
+      timeline.push({
+        time: new Date(currentTime),
+        location: parkingLocation.name,
+        action: 'Partenza verso Milano',
+        icon: 'depart',
+        trailers: getTrailerPlates(allTrailers, false),
+      });
+
+      // 5. Tirano -> Milano
+      const tiranoMilanoTime = getRouteDuration(parkingLocation.id, sourceLocation.id);
+      currentTime = addMinutes(currentTime, tiranoMilanoTime);
+
+      timeline.push({
+        time: new Date(currentTime),
+        location: sourceLocation.name,
+        action: 'Arrivo',
+        icon: 'arrive',
+        trailers: getTrailerPlates(allTrailers, false),
+      });
+
+      // 6. Load fuel at Milano
+      timeline.push({
+        time: new Date(currentTime),
+        location: sourceLocation.name,
+        action: 'Carico carburante',
+        icon: 'load',
+        details: `${totalLiters.toLocaleString()} L`,
+        trailers: getTrailerPlates(allTrailers, true),
+      });
+      currentTime = addMinutes(currentTime, LOAD_TIME);
+
+      // === RETURN: Milano -> Livigno (full trailers) ===
+
+      // 7. Departure from Milano with full trailers
+      timeline.push({
+        time: new Date(currentTime),
+        location: sourceLocation.name,
+        action: 'Partenza verso Livigno',
+        icon: 'depart',
+        trailers: getTrailerPlates(allTrailers, true),
+      });
+
+      // 8. Milano -> Tirano
+      const milanoTiranoTime = getRouteDuration(sourceLocation.id, parkingLocation.id);
+      currentTime = addMinutes(currentTime, milanoTiranoTime);
+
+      timeline.push({
+        time: new Date(currentTime),
+        location: parkingLocation.name,
+        action: 'Arrivo',
+        icon: 'arrive',
+        trailers: getTrailerPlates(allTrailers, true),
+      });
+
+      // 9. If dropping off a trailer at Tirano (full, to be picked up later)
+      if (dropOffTrailers.length > 0) {
+        timeline.push({
+          time: new Date(currentTime),
+          location: parkingLocation.name,
+          action: 'Sgancio cisterna',
+          icon: 'dropoff',
+          trailers: getTrailerPlates(dropOffTrailers, true),
+        });
+        currentTime = addMinutes(currentTime, DROPOFF_TIME);
+      }
+
+      // 10. Departure from Tirano toward Livigno (max 1 trailer on mountain road)
+      const trailersToLivigno = allTrailers.filter(t => !t.dropOffLocationId);
+      timeline.push({
+        time: new Date(currentTime),
+        location: parkingLocation.name,
+        action: 'Partenza verso Livigno',
+        icon: 'depart',
+        trailers: getTrailerPlates(trailersToLivigno, true),
+      });
+
+      // 11. Tirano -> Livigno
+      const tiranoLivignoTime = getRouteDuration(parkingLocation.id, destinationLocation.id);
+      currentTime = addMinutes(currentTime, tiranoLivignoTime);
+
+      timeline.push({
+        time: new Date(currentTime),
+        location: destinationLocation.name,
+        action: 'Arrivo',
+        icon: 'arrive',
+        trailers: getTrailerPlates(trailersToLivigno, true),
+      });
+
+      // 12. Unload at Livigno
+      const litersUnloaded = trailersToLivigno.reduce((sum, t) => sum + t.litersLoaded, 0);
+      timeline.push({
+        time: new Date(currentTime),
+        location: destinationLocation.name,
+        action: 'Scarico carburante',
+        icon: 'unload',
+        details: `${litersUnloaded.toLocaleString()} L`,
+        trailers: getTrailerPlates(trailersToLivigno, false),
+      });
+      currentTime = addMinutes(currentTime, UNLOAD_TIME);
+
+      // 13. End - truck back at base
+      timeline.push({
+        time: new Date(currentTime),
+        location: destinationLocation.name,
+        action: 'Fine turno',
+        icon: 'end',
+      });
+
+      return timeline;
+    };
+  }, [routeMap, sourceLocation, parkingLocation, destinationLocation]);
 
   const optimizeMutation = useOptimizeSchedule();
   const confirmMutation = useConfirmSchedule();
@@ -194,13 +417,18 @@ export default function ScheduleDetail() {
   const handleEventClick = (event: any) => {
     const trip = event.resource as Trip;
     setSelectedTrip(trip);
+    // Don't open dialog, just select for detail panel
+  };
+
+  const handleEditTrip = () => {
+    if (!selectedTrip) return;
     setIsNewTrip(false);
     setTripForm({
-      driverId: trip.driverId,
-      vehicleId: trip.vehicleId,
-      date: new Date(trip.date).toISOString().split('T')[0],
-      departureTime: formatTime(trip.departureTime),
-      trailers: trip.trailers?.map(t => ({
+      driverId: selectedTrip.driverId,
+      vehicleId: selectedTrip.vehicleId,
+      date: new Date(selectedTrip.date).toISOString().split('T')[0],
+      departureTime: formatTime(selectedTrip.departureTime),
+      trailers: selectedTrip.trailers?.map(t => ({
         trailerId: t.trailerId,
         litersLoaded: t.litersLoaded,
         dropOffLocationId: t.dropOffLocationId || '',
@@ -590,7 +818,7 @@ export default function ScheduleDetail() {
 
       {/* Calendar */}
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-row items-center justify-between pb-2">
           <CardTitle>Calendario Turni</CardTitle>
           {schedule.status === 'DRAFT' && (
             <Button
@@ -613,8 +841,11 @@ export default function ScheduleDetail() {
             </Button>
           )}
         </CardHeader>
-        <CardContent>
-          <div className="h-[600px]">
+        <CardContent className="pt-0">
+          <p className="text-xs text-muted-foreground mb-2">
+            Clicca su un viaggio per vedere i dettagli
+          </p>
+          <div className="h-[350px]">
             <Calendar
               localizer={localizer}
               events={calendarEvents}
@@ -642,6 +873,182 @@ export default function ScheduleDetail() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Trip Detail Panel - Below Calendar */}
+      {selectedTrip && (
+        <Card className="border-2 border-primary/20">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center gap-2">
+                <Clock className="h-5 w-5" />
+                Dettaglio Viaggio - {formatDate(selectedTrip.departureTime)}
+              </CardTitle>
+              <div className="flex gap-2">
+                {schedule.status === 'DRAFT' && (
+                  <Button size="sm" variant="outline" onClick={handleEditTrip}>
+                    Modifica
+                  </Button>
+                )}
+                <Button size="sm" variant="ghost" onClick={() => setSelectedTrip(null)}>
+                  Chiudi
+                </Button>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="grid md:grid-cols-3 gap-6">
+              {/* Trip Info - Left Column */}
+              <div className="space-y-4">
+                <div>
+                  <h4 className="text-sm font-medium text-muted-foreground mb-2">Risorse</h4>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Users className="h-4 w-4 text-muted-foreground" />
+                      <span className="font-medium">{selectedTrip.driver?.name}</span>
+                      <Badge variant="outline" className="text-xs">
+                        {getDriverTypeLabel(selectedTrip.driver?.type || '')}
+                      </Badge>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Truck className="h-4 w-4 text-muted-foreground" />
+                      <span className="font-medium">{selectedTrip.vehicle?.plate}</span>
+                      {selectedTrip.vehicle?.name && (
+                        <span className="text-muted-foreground">({selectedTrip.vehicle.name})</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="text-sm font-medium text-muted-foreground mb-2">Cisterne</h4>
+                  <div className="space-y-2">
+                    {selectedTrip.trailers?.map((t, i) => (
+                      <div key={i} className="flex items-center gap-2 text-sm">
+                        <Container className="h-4 w-4 text-muted-foreground" />
+                        <span className="font-medium">{t.trailer?.plate}</span>
+                        <span className="text-muted-foreground">
+                          {t.litersLoaded.toLocaleString()} L
+                        </span>
+                        {t.isPickup && (
+                          <Badge className="bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300 text-xs">
+                            <ArrowUp className="h-3 w-3 mr-1" />
+                            Pickup
+                          </Badge>
+                        )}
+                        {t.dropOffLocationId && (
+                          <Badge className="bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300 text-xs">
+                            <ArrowDown className="h-3 w-3 mr-1" />
+                            Sgancio
+                          </Badge>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="text-sm font-medium text-muted-foreground mb-2">Riepilogo</h4>
+                  <div className="text-sm space-y-1">
+                    <p>Totale litri: <span className="font-medium">{formatLiters(selectedTrip.trailers?.reduce((sum, t) => sum + t.litersLoaded, 0) || 0)}</span></p>
+                    <p>Partenza: <span className="font-medium">{formatTime(selectedTrip.departureTime)}</span></p>
+                    <p>Ritorno: <span className="font-medium">{selectedTrip.returnTime ? formatTime(selectedTrip.returnTime) : '-'}</span></p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Timeline - Right Columns (span 2) */}
+              <div className="md:col-span-2">
+                <h4 className="text-sm font-medium text-muted-foreground mb-3">Cronologia Viaggio</h4>
+                <div className="relative bg-muted/30 rounded-lg p-4">
+                  {/* Vertical line */}
+                  <div className="absolute left-7 top-6 bottom-6 w-0.5 bg-border" />
+
+                  <div className="space-y-2">
+                    {calculateTimeline(selectedTrip).map((step, index) => (
+                      <div key={index} className="flex items-center gap-3 relative">
+                        {/* Icon */}
+                        <div className={`z-10 flex items-center justify-center w-6 h-6 rounded-full shrink-0 ${
+                          step.icon === 'start' ? 'bg-green-500 text-white' :
+                          step.icon === 'end' ? 'bg-blue-500 text-white' :
+                          step.icon === 'dropoff' ? 'bg-orange-500 text-white' :
+                          step.icon === 'pickup' ? 'bg-purple-500 text-white' :
+                          step.icon === 'load' ? 'bg-emerald-500 text-white' :
+                          step.icon === 'unload' ? 'bg-yellow-500 text-white' :
+                          'bg-muted-foreground/20 text-muted-foreground'
+                        }`}>
+                          {step.icon === 'start' && <MapPin className="h-3 w-3" />}
+                          {step.icon === 'end' && <MapPin className="h-3 w-3" />}
+                          {step.icon === 'arrive' && <ArrowDown className="h-3 w-3" />}
+                          {step.icon === 'depart' && <ArrowUp className="h-3 w-3" />}
+                          {step.icon === 'dropoff' && <ArrowDown className="h-3 w-3" />}
+                          {step.icon === 'pickup' && <ArrowUp className="h-3 w-3" />}
+                          {step.icon === 'load' && <Fuel className="h-3 w-3" />}
+                          {step.icon === 'unload' && <Fuel className="h-3 w-3" />}
+                        </div>
+
+                        {/* Time */}
+                        <span className="font-mono text-sm font-medium w-12 shrink-0">
+                          {format(step.time, 'HH:mm')}
+                        </span>
+
+                        {/* Action & Location */}
+                        <div className="flex-1 min-w-0">
+                          <span className="text-sm font-medium">{step.action}</span>
+                          <span className="text-sm text-muted-foreground ml-2">{step.location}</span>
+                          {step.details && (
+                            <span className="ml-2 text-xs bg-muted px-1.5 py-0.5 rounded">
+                              {step.details}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Trailer icons */}
+                        {step.trailers && step.trailers.length > 0 && (
+                          <div className="flex items-center gap-1 shrink-0">
+                            {step.trailers.map((trailer, ti) => (
+                              <div
+                                key={ti}
+                                className={`relative flex items-center justify-center w-8 h-6 rounded border-2 ${
+                                  trailer.full
+                                    ? 'bg-amber-100 border-amber-500 dark:bg-amber-900/50'
+                                    : 'bg-gray-100 border-gray-400 dark:bg-gray-800'
+                                }`}
+                                title={`${trailer.plate} - ${trailer.full ? 'Piena' : 'Vuota'}`}
+                              >
+                                <Container className={`h-3 w-3 ${trailer.full ? 'text-amber-700 dark:text-amber-300' : 'text-gray-500'}`} />
+                                {trailer.full && (
+                                  <div className="absolute -top-1 -right-1 w-2 h-2 bg-amber-500 rounded-full" />
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Legend */}
+                  <div className="flex items-center gap-4 mt-4 pt-3 border-t text-xs text-muted-foreground">
+                    <div className="flex items-center gap-1">
+                      <div className="w-6 h-4 rounded border-2 bg-gray-100 border-gray-400 dark:bg-gray-800 flex items-center justify-center">
+                        <Container className="h-2 w-2 text-gray-500" />
+                      </div>
+                      <span>Vuota</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <div className="relative w-6 h-4 rounded border-2 bg-amber-100 border-amber-500 dark:bg-amber-900/50 flex items-center justify-center">
+                        <Container className="h-2 w-2 text-amber-700 dark:text-amber-300" />
+                        <div className="absolute -top-1 -right-1 w-1.5 h-1.5 bg-amber-500 rounded-full" />
+                      </div>
+                      <span>Piena</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Trip Dialog - Improved */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>

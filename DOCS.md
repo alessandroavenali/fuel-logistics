@@ -14,12 +14,29 @@
 
 ## Panoramica
 
-**Fuel Logistics** è un sistema per gestire il trasporto di carburante da un deposito (Milano) a una destinazione montana (Livigno), con un parcheggio intermedio (Tirano) dove le cisterne possono essere sganciate.
+**Fuel Logistics** è un sistema per gestire il trasporto di carburante da un deposito (Milano) alla base operativa montana (Livigno), con un parcheggio intermedio (Tirano) dove le cisterne possono essere sganciate.
+
+### Flusso Operativo
+La **base operativa** è Livigno. Le motrici e cisterne vuote partono da Livigno, vanno a Milano a caricare il carburante, e tornano a Livigno.
+
+**Vincolo tratta montana:**
+- Livigno ↔ Tirano: **max 1 cisterna** (strada di montagna)
+- Tirano ↔ Milano: **max 2 cisterne**
+
+**Viaggio tipo:**
+1. Partenza da Livigno con 1 cisterna vuota
+2. Arrivo a Tirano → eventuale aggancio 2° cisterna vuota
+3. Partenza da Tirano con 1-2 cisterne
+4. Arrivo a Milano → carico carburante
+5. Partenza da Milano con cisterne piene
+6. Arrivo a Tirano → eventuale sgancio 1 cisterna piena
+7. Partenza da Tirano con 1 cisterna (vincolo montagna)
+8. Arrivo a Livigno → scarico carburante
 
 ### Problema risolto
 - Pianificare i viaggi per soddisfare un fabbisogno di litri in un periodo
 - Rispettare i vincoli ADR (ore di guida, riposi obbligatori)
-- Gestire lo sgancio/recupero cisterne a Tirano
+- Gestire lo sgancio/recupero cisterne a Tirano (ottimizzazione capacità)
 - Calcolare i costi degli autisti a chiamata
 
 ### Utenti target
@@ -368,10 +385,21 @@ fuel-logistics/
 
 ### Gestione Cisterne a Tirano
 
-- Un viaggio può portare 2 cisterne
-- La prima va fino a Livigno e torna
-- La seconda viene sganciata a Tirano (`dropOffLocationId`)
-- Viaggi successivi possono recuperarla (`isPickup = true`)
+Il parcheggio di Tirano serve come punto di scambio per ottimizzare i viaggi:
+
+**Andata (cisterne vuote):**
+- La motrice parte da Livigno con 1 cisterna vuota (vincolo montagna)
+- A Tirano può agganciare una 2° cisterna vuota (`isPickup = true`)
+- Prosegue verso Milano con 1-2 cisterne
+
+**Ritorno (cisterne piene):**
+- La motrice parte da Milano con le cisterne piene
+- A Tirano può sganciare 1 cisterna piena (`dropOffLocationId`)
+- Prosegue verso Livigno con 1 sola cisterna (vincolo montagna)
+
+**Cisterne parcheggiate a Tirano:**
+- Cisterne piene: in attesa di essere portate a Livigno
+- Cisterne vuote: in attesa di essere portate a Milano per il carico
 
 ### Stima Durata Viaggio
 
