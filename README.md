@@ -66,7 +66,7 @@ npm install
 npm run dev
 ```
 
-Il frontend sara disponibile su http://localhost:5173
+Il frontend sara disponibile su http://localhost:5174
 
 ## Struttura Progetto
 
