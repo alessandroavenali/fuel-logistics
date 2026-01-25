@@ -19,9 +19,10 @@ model Location {
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
 
-  routesFrom   Route[]       @relation("RouteFrom")
-  routesTo     Route[]       @relation("RouteTo")
-  tripDropOffs TripTrailer[]
+  routesFrom            Route[]                @relation("RouteFrom")
+  routesTo              Route[]                @relation("RouteTo")
+  tripDropOffs          TripTrailer[]
+  scheduleInitialStates ScheduleInitialState[]
 }
 
 enum LocationType {
@@ -53,7 +54,8 @@ model Trailer {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  tripTrailers TripTrailer[]
+  tripTrailers  TripTrailer[]
+  initialStates ScheduleInitialState[]
 }
 
 // Autisti
@@ -109,7 +111,24 @@ model Schedule {
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
 
-  trips Trip[]
+  trips         Trip[]
+  initialStates ScheduleInitialState[]
+}
+
+// Stato iniziale cisterne per pianificazione
+model ScheduleInitialState {
+  id         String   @id @default(uuid())
+  scheduleId String
+  trailerId  String
+  locationId String
+  isFull     Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  schedule Schedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  trailer  Trailer  @relation(fields: [trailerId], references: [id])
+  location Location @relation(fields: [locationId], references: [id])
+
+  @@unique([scheduleId, trailerId])
 }
 
 enum ScheduleStatus {

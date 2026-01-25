@@ -33,6 +33,7 @@ interface AvailabilityTracker {
   driverHoursByWeek: Map<string, number>;
   vehicleSchedule: Map<string, Date[]>;
   trailerLocations: Map<string, string | null>; // null = available at source, string = locationId where parked
+  trailerIsFull: Map<string, boolean>; // Track if trailer is full
 }
 
 const LITERS_PER_TRAILER = 17500;
@@ -45,9 +46,16 @@ export async function optimizeSchedule(
 ): Promise<OptimizationResult> {
   const warnings: string[] = [];
 
-  // Fetch schedule
+  // Fetch schedule with initial states
   const schedule = await prisma.schedule.findUnique({
     where: { id: scheduleId },
+    include: {
+      initialStates: {
+        include: {
+          location: true,
+        },
+      },
+    },
   });
 
   if (!schedule) {
@@ -92,11 +100,29 @@ export async function optimizeSchedule(
     driverHoursByWeek: new Map(),
     vehicleSchedule: new Map(),
     trailerLocations: new Map(),
+    trailerIsFull: new Map(),
   };
 
-  // Initialize trailer locations (all at source initially)
+  // Build initial states map from schedule
+  const initialStatesMap = new Map<string, { locationId: string | null; isFull: boolean }>();
+  for (const state of schedule.initialStates) {
+    // For SOURCE locations, we use null (available at source)
+    // For PARKING or DESTINATION, we use the locationId
+    const locationId = state.location.type === 'SOURCE' ? null : state.locationId;
+    initialStatesMap.set(state.trailerId, { locationId, isFull: state.isFull });
+  }
+
+  // Initialize trailer locations using initial states if provided, otherwise at source (null)
   for (const trailer of trailers) {
-    tracker.trailerLocations.set(trailer.id, null);
+    const initialState = initialStatesMap.get(trailer.id);
+    if (initialState) {
+      tracker.trailerLocations.set(trailer.id, initialState.locationId);
+      tracker.trailerIsFull.set(trailer.id, initialState.isFull);
+    } else {
+      // Default: at source, empty
+      tracker.trailerLocations.set(trailer.id, null);
+      tracker.trailerIsFull.set(trailer.id, false);
+    }
   }
 
   // Fetch existing work logs for drivers
@@ -196,6 +222,7 @@ export async function optimizeSchedule(
         });
         tripLiters += trailer.capacityLiters;
         tracker.trailerLocations.set(trailer.id, null); // Returns to source
+        tracker.trailerIsFull.set(trailer.id, false); // After delivery, it's empty
       } else if (parkingLocation) {
         // Second trailer stays at Tirano
         tripTrailers.push({
@@ -205,6 +232,7 @@ export async function optimizeSchedule(
           isPickup: trailerInfo.isPickup,
         });
         tracker.trailerLocations.set(trailer.id, parkingLocation.id);
+        tracker.trailerIsFull.set(trailer.id, true); // Left at parking full
         trailersAtParking++;
       }
     }
@@ -367,30 +395,45 @@ function findAvailableTrailers(
   tracker: AvailabilityTracker,
   maxTrailers: number,
   parkingLocationId?: string
-): { trailerId: string; isPickup: boolean }[] {
-  const result: { trailerId: string; isPickup: boolean }[] = [];
+): { trailerId: string; isPickup: boolean; isFull: boolean }[] {
+  const result: { trailerId: string; isPickup: boolean; isFull: boolean }[] = [];
 
-  // First, check for trailers at parking (to pick up)
+  // First, check for trailers at parking (to pick up) - prioritize full trailers
   if (parkingLocationId) {
+    // First pass: full trailers at parking
     for (const trailer of trailers) {
       if (result.length >= maxTrailers) break;
 
       const location = tracker.trailerLocations.get(trailer.id);
-      if (location === parkingLocationId) {
-        result.push({ trailerId: trailer.id, isPickup: true });
+      const isFull = tracker.trailerIsFull.get(trailer.id) || false;
+      if (location === parkingLocationId && isFull) {
+        result.push({ trailerId: trailer.id, isPickup: true, isFull });
+      }
+    }
+    // Second pass: empty trailers at parking
+    for (const trailer of trailers) {
+      if (result.length >= maxTrailers) break;
+
+      const location = tracker.trailerLocations.get(trailer.id);
+      const isFull = tracker.trailerIsFull.get(trailer.id) || false;
+      if (location === parkingLocationId && !isFull) {
+        if (!result.some((r) => r.trailerId === trailer.id)) {
+          result.push({ trailerId: trailer.id, isPickup: true, isFull });
+        }
       }
     }
   }
 
-  // Then, add trailers from source
+  // Then, add trailers from source (null location)
   for (const trailer of trailers) {
     if (result.length >= maxTrailers) break;
 
     const location = tracker.trailerLocations.get(trailer.id);
+    const isFull = tracker.trailerIsFull.get(trailer.id) || false;
     if (location === null) {
       // Already used in this trip
       if (!result.some((r) => r.trailerId === trailer.id)) {
-        result.push({ trailerId: trailer.id, isPickup: false });
+        result.push({ trailerId: trailer.id, isPickup: false, isFull });
       }
     }
   }

@@ -47,6 +47,12 @@ export async function getSchedule(req: Request, res: Response, next: NextFunctio
           },
           orderBy: { date: 'asc' },
         },
+        initialStates: {
+          include: {
+            trailer: true,
+            location: true,
+          },
+        },
       },
     });
 
@@ -65,11 +71,30 @@ export async function createSchedule(req: Request, res: Response, next: NextFunc
     const prisma: PrismaClient = (req as any).prisma;
     const data = createScheduleSchema.parse(req.body);
 
+    const { initialStates, ...scheduleData } = data;
+
     const schedule = await prisma.schedule.create({
       data: {
-        ...data,
-        startDate: new Date(data.startDate),
-        endDate: new Date(data.endDate),
+        ...scheduleData,
+        startDate: new Date(scheduleData.startDate),
+        endDate: new Date(scheduleData.endDate),
+        initialStates: initialStates
+          ? {
+              create: initialStates.map((state) => ({
+                trailerId: state.trailerId,
+                locationId: state.locationId,
+                isFull: state.isFull,
+              })),
+            }
+          : undefined,
+      },
+      include: {
+        initialStates: {
+          include: {
+            trailer: true,
+            location: true,
+          },
+        },
       },
     });
 
@@ -85,16 +110,56 @@ export async function updateSchedule(req: Request, res: Response, next: NextFunc
     const { id } = req.params;
     const data = updateScheduleSchema.parse(req.body);
 
-    const schedule = await prisma.schedule.update({
+    const { initialStates, ...scheduleData } = data;
+
+    const schedule = await prisma.$transaction(async (tx) => {
+      // Update schedule
+      const updatedSchedule = await tx.schedule.update({
+        where: { id },
+        data: {
+          ...scheduleData,
+          startDate: scheduleData.startDate ? new Date(scheduleData.startDate) : undefined,
+          endDate: scheduleData.endDate ? new Date(scheduleData.endDate) : undefined,
+        },
+      });
+
+      // Update initial states if provided
+      if (initialStates) {
+        // Delete existing initial states
+        await tx.scheduleInitialState.deleteMany({
+          where: { scheduleId: id },
+        });
+
+        // Create new initial states
+        if (initialStates.length > 0) {
+          await tx.scheduleInitialState.createMany({
+            data: initialStates.map((state) => ({
+              scheduleId: id,
+              trailerId: state.trailerId,
+              locationId: state.locationId,
+              isFull: state.isFull,
+            })),
+          });
+        }
+      }
+
+      return updatedSchedule;
+    });
+
+    // Fetch complete schedule with relations
+    const completeSchedule = await prisma.schedule.findUnique({
       where: { id },
-      data: {
-        ...data,
-        startDate: data.startDate ? new Date(data.startDate) : undefined,
-        endDate: data.endDate ? new Date(data.endDate) : undefined,
+      include: {
+        initialStates: {
+          include: {
+            trailer: true,
+            location: true,
+          },
+        },
       },
     });
 
-    res.json(schedule);
+    res.json(completeSchedule);
   } catch (error) {
     next(error);
   }

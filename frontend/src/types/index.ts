@@ -77,9 +77,21 @@ export interface Schedule {
   createdAt: string;
   updatedAt: string;
   trips?: Trip[];
+  initialStates?: ScheduleInitialState[];
   _count?: {
     trips: number;
   };
+}
+
+export interface ScheduleInitialState {
+  id: string;
+  scheduleId: string;
+  trailerId: string;
+  locationId: string;
+  isFull: boolean;
+  createdAt: string;
+  trailer?: Trailer;
+  location?: Location;
 }
 
 export interface Trip {
@@ -176,6 +188,11 @@ export interface CreateScheduleInput {
   requiredLiters: number;
   status?: ScheduleStatus;
   notes?: string;
+  initialStates?: {
+    trailerId: string;
+    locationId: string;
+    isFull: boolean;
+  }[];
 }
 
 export interface CreateTripInput {

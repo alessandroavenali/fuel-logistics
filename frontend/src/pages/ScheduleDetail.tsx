@@ -63,7 +63,7 @@ import {
   getStatusColor,
   getDriverTypeLabel,
 } from '@/lib/utils';
-import type { Trip, Location, ValidationResult, TrailerStatus, VehicleStatus, DriverAvailability, Route } from '@/types';
+import type { Trip, Location, ValidationResult, TrailerStatus, VehicleStatus, DriverAvailability, Route, ScheduleInitialState } from '@/types';
 
 const locales = { it };
 const localizer = dateFnsLocalizer({
@@ -654,6 +654,43 @@ export default function ScheduleDetail() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Initial States - Only show if there are initial states */}
+      {schedule.initialStates && schedule.initialStates.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <Container className="h-4 w-4" />
+              Condizioni Iniziali Cisterne
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3">
+              {schedule.initialStates.map((state: ScheduleInitialState) => (
+                <div key={state.id} className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
+                  <div className="flex items-center gap-2">
+                    <Container className="h-4 w-4 text-muted-foreground" />
+                    <span className="font-medium text-sm">
+                      {state.trailer?.name || state.trailer?.plate || 'N/A'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline" className="text-xs">
+                      {state.location?.name || 'N/A'}
+                    </Badge>
+                    <Badge
+                      variant="outline"
+                      className={`text-xs ${state.isFull ? 'bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300' : 'bg-gray-50 text-gray-600 dark:bg-gray-800 dark:text-gray-400'}`}
+                    >
+                      {state.isFull ? 'Piena' : 'Vuota'}
+                    </Badge>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Resource Status */}
       <div className="grid gap-4 md:grid-cols-3">

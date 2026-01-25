@@ -4,6 +4,58 @@ Tutte le modifiche rilevanti al progetto Fuel Logistics Management System sarann
 
 Il formato segue [Keep a Changelog](https://keepachangelog.com/it/1.0.0/).
 
+## [1.3.0] - 2026-01-25
+
+### Aggiunto
+
+#### Backend
+
+- **Modello ScheduleInitialState** (`prisma/schema.prisma`)
+  - Nuovo modello per memorizzare lo stato iniziale delle cisterne per ogni pianificazione
+  - Campi: `scheduleId`, `trailerId`, `locationId`, `isFull`
+  - Vincolo unico su `[scheduleId, trailerId]` per evitare duplicati
+  - Relazioni inverse in `Schedule`, `Trailer`, e `Location`
+
+- **API Initial States** (`src/controllers/schedules.controller.ts`)
+  - `createSchedule`: accetta `initialStates` array per creare stati iniziali cisterne
+  - `getSchedule`: include `initialStates` con relazioni `trailer` e `location`
+  - `updateSchedule`: supporta aggiornamento stati iniziali (delete + create in transazione)
+
+- **Validatore esteso** (`src/utils/validators.ts`)
+  - `createScheduleSchema` ora accetta campo opzionale `initialStates` con array di `{trailerId, locationId, isFull}`
+
+- **Ottimizzatore migliorato** (`src/services/optimizer.service.ts`)
+  - Nuovo campo `trailerIsFull` nel tracker per tracciare stato piena/vuota
+  - Lettura stati iniziali dalla pianificazione al momento dell'ottimizzazione
+  - Inizializzazione posizioni cisterne da stati iniziali (default: sorgente, vuota)
+  - `findAvailableTrailers` ora prioritizza cisterne piene al parcheggio
+
+#### Frontend
+
+- **Componente Switch** (`src/components/ui/switch.tsx`)
+  - Nuovo componente toggle per il selettore piena/vuota
+
+- **Dialog Nuova Pianificazione** (`src/pages/Schedules.tsx`)
+  - Sezione "Condizioni Iniziali Cisterne" dopo i litri richiesti
+  - Per ogni cisterna attiva: dropdown posizione + toggle piena/vuota
+  - Default: Livigno (DESTINATION), vuota
+  - Invio `initialStates` nella creazione pianificazione
+
+- **Dettaglio Pianificazione** (`src/pages/ScheduleDetail.tsx`)
+  - Card "Condizioni Iniziali Cisterne" visibile se presenti stati iniziali
+  - Mostra nome/targa cisterna, posizione, stato piena/vuota con badge colorati
+
+- **Tipi TypeScript** (`src/types/index.ts`)
+  - Interface `ScheduleInitialState` con relazioni opzionali
+  - `CreateScheduleInput` esteso con campo `initialStates`
+  - `Schedule` esteso con campo `initialStates`
+
+### Modificato
+
+- **Logica ottimizzatore**: le cisterne ora partono dalle posizioni iniziali specificate invece che tutte dalla sorgente
+
+---
+
 ## [1.2.0] - 2026-01-25
 
 ### Aggiunto

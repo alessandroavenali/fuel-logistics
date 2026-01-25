@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -24,14 +24,30 @@ import {
 } from '@/components/ui/dialog';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
+import {
   useSchedules,
   useCreateSchedule,
   useDeleteSchedule,
 } from '@/hooks/useSchedules';
+import { useTrailers } from '@/hooks/useTrailers';
+import { useLocations } from '@/hooks/useLocations';
 import { useToast } from '@/hooks/useToast';
 import { Plus, Eye, Trash2 } from 'lucide-react';
 import { formatDate, formatLiters, getStatusLabel, getStatusColor } from '@/lib/utils';
-import type { Schedule } from '@/types';
+import type { Schedule, Trailer, Location } from '@/types';
+
+interface TrailerInitialState {
+  trailerId: string;
+  locationId: string;
+  isFull: boolean;
+}
 
 const scheduleSchema = z.object({
   name: z.string().min(1, 'Il nome è obbligatorio'),
@@ -45,11 +61,35 @@ type ScheduleFormData = z.infer<typeof scheduleSchema>;
 
 export default function Schedules() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [initialStates, setInitialStates] = useState<TrailerInitialState[]>([]);
 
   const { data: schedules, isLoading } = useSchedules();
+  const { data: trailers } = useTrailers(true); // Only active trailers
+  const { data: locations } = useLocations({ isActive: true });
   const createMutation = useCreateSchedule();
   const deleteMutation = useDeleteSchedule();
   const { toast } = useToast();
+
+  // Get destination location (Livigno) as default
+  const destinationLocation = locations?.find((l: Location) => l.type === 'DESTINATION');
+
+  // Initialize initial states when dialog opens and data is available
+  useEffect(() => {
+    if (isDialogOpen && trailers && destinationLocation) {
+      const defaultStates: TrailerInitialState[] = trailers.map((trailer: Trailer) => ({
+        trailerId: trailer.id,
+        locationId: destinationLocation.id,
+        isFull: false, // Default: empty
+      }));
+      setInitialStates(defaultStates);
+    }
+  }, [isDialogOpen, trailers, destinationLocation]);
+
+  const updateTrailerState = (trailerId: string, field: 'locationId' | 'isFull', value: string | boolean) => {
+    setInitialStates(prev => prev.map(state =>
+      state.trailerId === trailerId ? { ...state, [field]: value } : state
+    ));
+  };
 
   const {
     register,
@@ -84,6 +124,7 @@ export default function Schedules() {
         ...data,
         startDate: new Date(data.startDate).toISOString(),
         endDate: new Date(data.endDate).toISOString(),
+        initialStates: initialStates.length > 0 ? initialStates : undefined,
       };
       await createMutation.mutateAsync(payload);
       toast({ title: 'Pianificazione creata', variant: 'success' });
@@ -220,6 +261,57 @@ export default function Schedules() {
                 <Label htmlFor="notes">Note (opzionale)</Label>
                 <Input id="notes" {...register('notes')} />
               </div>
+
+              {/* Initial States Section */}
+              {trailers && trailers.length > 0 && locations && locations.length > 0 && (
+                <div className="border-t pt-4 mt-4">
+                  <Label className="text-base font-semibold">Condizioni Iniziali Cisterne</Label>
+                  <p className="text-sm text-muted-foreground mb-3">
+                    Specifica la posizione e lo stato di ciascuna cisterna all'inizio della pianificazione.
+                  </p>
+                  <div className="space-y-3 max-h-60 overflow-y-auto">
+                    {trailers.map((trailer: Trailer) => {
+                      const state = initialStates.find(s => s.trailerId === trailer.id);
+                      return (
+                        <div key={trailer.id} className="flex items-center gap-3 p-2 bg-muted/50 rounded-md">
+                          <div className="flex-1 min-w-0">
+                            <span className="font-medium text-sm truncate">
+                              {trailer.name || trailer.plate}
+                            </span>
+                          </div>
+                          <div className="w-40">
+                            <Select
+                              value={state?.locationId || ''}
+                              onValueChange={(value) => updateTrailerState(trailer.id, 'locationId', value)}
+                            >
+                              <SelectTrigger className="h-8 text-xs">
+                                <SelectValue placeholder="Posizione" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {locations.map((location: Location) => (
+                                  <SelectItem key={location.id} value={location.id}>
+                                    {location.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Label htmlFor={`full-${trailer.id}`} className="text-xs whitespace-nowrap">
+                              {state?.isFull ? 'Piena' : 'Vuota'}
+                            </Label>
+                            <Switch
+                              id={`full-${trailer.id}`}
+                              checked={state?.isFull || false}
+                              onCheckedChange={(checked) => updateTrailerState(trailer.id, 'isFull', checked)}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
             <DialogFooter className="mt-6">
               <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>

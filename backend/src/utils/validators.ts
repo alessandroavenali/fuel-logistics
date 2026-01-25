@@ -73,6 +73,11 @@ export const createScheduleSchema = z.object({
   requiredLiters: z.number().int().min(0),
   status: ScheduleStatusEnum.optional(),
   notes: z.string().optional(),
+  initialStates: z.array(z.object({
+    trailerId: z.string().uuid(),
+    locationId: z.string().uuid(),
+    isFull: z.boolean()
+  })).optional(),
 });
 
 export const updateScheduleSchema = createScheduleSchema.partial();
