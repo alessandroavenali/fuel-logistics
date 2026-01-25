@@ -1,0 +1,320 @@
+import { Request, Response, NextFunction } from 'express';
+import { PrismaClient } from '@prisma/client';
+import { createScheduleSchema, updateScheduleSchema, createTripSchema, updateTripSchema } from '../utils/validators.js';
+import { AppError } from '../middleware/errorHandler.js';
+import { optimizeSchedule } from '../services/optimizer.service.js';
+import { validateTripsForSchedule } from '../services/adrValidator.service.js';
+
+export async function getSchedules(req: Request, res: Response, next: NextFunction) {
+  try {
+    const prisma: PrismaClient = (req as any).prisma;
+    const { status } = req.query;
+
+    const schedules = await prisma.schedule.findMany({
+      where: status ? { status: status as any } : undefined,
+      include: {
+        _count: {
+          select: { trips: true },
+        },
+      },
+      orderBy: { startDate: 'desc' },
+    });
+
+    res.json(schedules);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getSchedule(req: Request, res: Response, next: NextFunction) {
+  try {
+    const prisma: PrismaClient = (req as any).prisma;
+    const { id } = req.params;
+
+    const schedule = await prisma.schedule.findUnique({
+      where: { id },
+      include: {
+        trips: {
+          include: {
+            vehicle: true,
+            driver: true,
+            trailers: {
+              include: {
+                trailer: true,
+                dropOffLocation: true,
+              },
+            },
+          },
+          orderBy: { date: 'asc' },
+        },
+      },
+    });
+
+    if (!schedule) {
+      throw new AppError(404, 'Schedule not found');
+    }
+
+    res.json(schedule);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function createSchedule(req: Request, res: Response, next: NextFunction) {
+  try {
+    const prisma: PrismaClient = (req as any).prisma;
+    const data = createScheduleSchema.parse(req.body);
+
+    const schedule = await prisma.schedule.create({
+      data: {
+        ...data,
+        startDate: new Date(data.startDate),
+        endDate: new Date(data.endDate),
+      },
+    });
+
+    res.status(201).json(schedule);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function updateSchedule(req: Request, res: Response, next: NextFunction) {
+  try {
+    const prisma: PrismaClient = (req as any).prisma;
+    const { id } = req.params;
+    const data = updateScheduleSchema.parse(req.body);
+
+    const schedule = await prisma.schedule.update({
+      where: { id },
+      data: {
+        ...data,
+        startDate: data.startDate ? new Date(data.startDate) : undefined,
+        endDate: data.endDate ? new Date(data.endDate) : undefined,
+      },
+    });
+
+    res.json(schedule);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function deleteSchedule(req: Request, res: Response, next: NextFunction) {
+  try {
+    const prisma: PrismaClient = (req as any).prisma;
+    const { id } = req.params;
+
+    await prisma.schedule.delete({
+      where: { id },
+    });
+
+    res.status(204).send();
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function optimizeScheduleHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    const prisma: PrismaClient = (req as any).prisma;
+    const { id } = req.params;
+
+    const result = await optimizeSchedule(prisma, id);
+
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function confirmSchedule(req: Request, res: Response, next: NextFunction) {
+  try {
+    const prisma: PrismaClient = (req as any).prisma;
+    const { id } = req.params;
+
+    const schedule = await prisma.schedule.findUnique({
+      where: { id },
+      include: { trips: true },
+    });
+
+    if (!schedule) {
+      throw new AppError(404, 'Schedule not found');
+    }
+
+    if (schedule.trips.length === 0) {
+      throw new AppError(400, 'Cannot confirm schedule without trips');
+    }
+
+    const updated = await prisma.schedule.update({
+      where: { id },
+      data: { status: 'CONFIRMED' },
+    });
+
+    res.json(updated);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function validateSchedule(req: Request, res: Response, next: NextFunction) {
+  try {
+    const prisma: PrismaClient = (req as any).prisma;
+    const { id } = req.params;
+
+    const result = await validateTripsForSchedule(prisma, id);
+
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+}
+
+// Trip management within schedules
+export async function getScheduleTrips(req: Request, res: Response, next: NextFunction) {
+  try {
+    const prisma: PrismaClient = (req as any).prisma;
+    const { id } = req.params;
+
+    const trips = await prisma.trip.findMany({
+      where: { scheduleId: id },
+      include: {
+        vehicle: true,
+        driver: true,
+        trailers: {
+          include: {
+            trailer: true,
+            dropOffLocation: true,
+          },
+        },
+      },
+      orderBy: { date: 'asc' },
+    });
+
+    res.json(trips);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function createTrip(req: Request, res: Response, next: NextFunction) {
+  try {
+    const prisma: PrismaClient = (req as any).prisma;
+    const { id: scheduleId } = req.params;
+    const data = createTripSchema.parse({ ...req.body, scheduleId });
+
+    const { trailers, ...tripData } = data;
+
+    const trip = await prisma.trip.create({
+      data: {
+        ...tripData,
+        date: new Date(tripData.date),
+        departureTime: new Date(tripData.departureTime),
+        returnTime: tripData.returnTime ? new Date(tripData.returnTime) : undefined,
+        trailers: trailers
+          ? {
+              create: trailers.map((t) => ({
+                trailerId: t.trailerId,
+                litersLoaded: t.litersLoaded,
+                dropOffLocationId: t.dropOffLocationId,
+                isPickup: t.isPickup || false,
+              })),
+            }
+          : undefined,
+      },
+      include: {
+        vehicle: true,
+        driver: true,
+        trailers: {
+          include: {
+            trailer: true,
+            dropOffLocation: true,
+          },
+        },
+      },
+    });
+
+    res.status(201).json(trip);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function updateTrip(req: Request, res: Response, next: NextFunction) {
+  try {
+    const prisma: PrismaClient = (req as any).prisma;
+    const { tripId } = req.params;
+    const data = updateTripSchema.parse(req.body);
+
+    const { trailers, ...tripData } = data;
+
+    // Update trip and trailers in transaction
+    const trip = await prisma.$transaction(async (tx) => {
+      // Update trip
+      const updatedTrip = await tx.trip.update({
+        where: { id: tripId },
+        data: {
+          ...tripData,
+          date: tripData.date ? new Date(tripData.date) : undefined,
+          departureTime: tripData.departureTime ? new Date(tripData.departureTime) : undefined,
+          returnTime: tripData.returnTime ? new Date(tripData.returnTime) : undefined,
+        },
+      });
+
+      // Update trailers if provided
+      if (trailers) {
+        // Delete existing trailers
+        await tx.tripTrailer.deleteMany({
+          where: { tripId },
+        });
+
+        // Create new trailers
+        await tx.tripTrailer.createMany({
+          data: trailers.map((t) => ({
+            tripId,
+            trailerId: t.trailerId,
+            litersLoaded: t.litersLoaded,
+            dropOffLocationId: t.dropOffLocationId,
+            isPickup: t.isPickup || false,
+          })),
+        });
+      }
+
+      return updatedTrip;
+    });
+
+    // Fetch complete trip with relations
+    const completeTrip = await prisma.trip.findUnique({
+      where: { id: tripId },
+      include: {
+        vehicle: true,
+        driver: true,
+        trailers: {
+          include: {
+            trailer: true,
+            dropOffLocation: true,
+          },
+        },
+      },
+    });
+
+    res.json(completeTrip);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function deleteTrip(req: Request, res: Response, next: NextFunction) {
+  try {
+    const prisma: PrismaClient = (req as any).prisma;
+    const { tripId } = req.params;
+
+    await prisma.trip.delete({
+      where: { id: tripId },
+    });
+
+    res.status(204).send();
+  } catch (error) {
+    next(error);
+  }
+}

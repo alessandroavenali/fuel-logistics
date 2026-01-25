@@ -1,0 +1,189 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Luoghi (sorgenti, destinazioni, parcheggi)
+model Location {
+  id        String       @id @default(uuid())
+  name      String
+  type      LocationType
+  address   String
+  latitude  Float?
+  longitude Float?
+  isActive  Boolean      @default(true)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  routesFrom   Route[]       @relation("RouteFrom")
+  routesTo     Route[]       @relation("RouteTo")
+  tripDropOffs TripTrailer[]
+}
+
+enum LocationType {
+  SOURCE
+  DESTINATION
+  PARKING
+}
+
+// Motrici
+model Vehicle {
+  id          String   @id @default(uuid())
+  plate       String   @unique
+  name        String?
+  maxTrailers Int      @default(2)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  trips Trip[]
+}
+
+// Autobotti/Cisterne
+model Trailer {
+  id             String   @id @default(uuid())
+  plate          String   @unique
+  name           String?
+  capacityLiters Int      @default(17500)
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  tripTrailers TripTrailer[]
+}
+
+// Autisti
+model Driver {
+  id                String     @id @default(uuid())
+  name              String
+  type              DriverType
+  phone             String?
+  adrLicenseExpiry  DateTime?
+  adrCisternExpiry  DateTime?
+  weeklyWorkingDays Int        @default(5)
+  hourlyCost        Float?
+  isActive          Boolean    @default(true)
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+
+  trips    Trip[]
+  workLogs DriverWorkLog[]
+}
+
+enum DriverType {
+  RESIDENT
+  ON_CALL
+  EMERGENCY
+}
+
+// Percorsi predefiniti con tempi/distanze
+model Route {
+  id              String   @id @default(uuid())
+  name            String
+  fromLocationId  String
+  toLocationId    String
+  distanceKm      Float
+  durationMinutes Int
+  tollCost        Float?
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  fromLocation Location @relation("RouteFrom", fields: [fromLocationId], references: [id])
+  toLocation   Location @relation("RouteTo", fields: [toLocationId], references: [id])
+}
+
+// Pianificazione per periodo
+model Schedule {
+  id             String         @id @default(uuid())
+  name           String
+  startDate      DateTime
+  endDate        DateTime
+  requiredLiters Int
+  status         ScheduleStatus @default(DRAFT)
+  notes          String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  trips Trip[]
+}
+
+enum ScheduleStatus {
+  DRAFT
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+}
+
+// Singolo viaggio
+model Trip {
+  id            String     @id @default(uuid())
+  scheduleId    String
+  vehicleId     String
+  driverId      String
+  date          DateTime
+  departureTime DateTime
+  returnTime    DateTime?
+  status        TripStatus @default(PLANNED)
+  notes         String?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  schedule Schedule      @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  vehicle  Vehicle       @relation(fields: [vehicleId], references: [id])
+  driver   Driver        @relation(fields: [driverId], references: [id])
+  trailers TripTrailer[]
+}
+
+enum TripStatus {
+  PLANNED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+// Associazione viaggio-cisterna
+model TripTrailer {
+  id                String   @id @default(uuid())
+  tripId            String
+  trailerId         String
+  litersLoaded      Int
+  dropOffLocationId String?
+  isPickup          Boolean  @default(false)
+  createdAt         DateTime @default(now())
+
+  trip            Trip      @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  trailer         Trailer   @relation(fields: [trailerId], references: [id])
+  dropOffLocation Location? @relation(fields: [dropOffLocationId], references: [id])
+}
+
+// Registro ore lavorate (per vincoli ADR)
+model DriverWorkLog {
+  id           String   @id @default(uuid())
+  driverId     String
+  date         DateTime
+  drivingHours Float
+  workingHours Float
+  restHours    Float
+  weekNumber   Int
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  driver Driver @relation(fields: [driverId], references: [id])
+
+  @@unique([driverId, date])
+}
+
+// Configurazioni globali
+model Setting {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  value       String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
