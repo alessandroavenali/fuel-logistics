@@ -48,6 +48,14 @@ export const vehiclesApi = {
   update: (id: string, data: any) =>
     request<any>(`/vehicles/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   delete: (id: string) => request<void>(`/vehicles/${id}`, { method: 'DELETE' }),
+  getStatus: (params?: { from?: string; to?: string; scheduleId?: string }) => {
+    const searchParams = new URLSearchParams();
+    if (params?.from) searchParams.set('from', params.from);
+    if (params?.to) searchParams.set('to', params.to);
+    if (params?.scheduleId) searchParams.set('scheduleId', params.scheduleId);
+    const query = searchParams.toString();
+    return request<any[]>(`/vehicles/status${query ? `?${query}` : ''}`);
+  },
 };
 
 // Trailers
@@ -60,6 +68,10 @@ export const trailersApi = {
     request<any>(`/trailers/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   delete: (id: string) => request<void>(`/trailers/${id}`, { method: 'DELETE' }),
   getAtLocation: (locationId: string) => request<any[]>(`/trailers/location/${locationId}`),
+  getStatus: (scheduleId?: string) => {
+    const params = scheduleId ? `?scheduleId=${scheduleId}` : '';
+    return request<any[]>(`/trailers/status${params}`);
+  },
 };
 
 // Drivers
@@ -84,6 +96,14 @@ export const driversApi = {
   },
   getExpiring: (days?: number) =>
     request<any[]>(`/drivers/expiring${days ? `?days=${days}` : ''}`),
+  getAvailability: (params?: { from?: string; to?: string; scheduleId?: string }) => {
+    const searchParams = new URLSearchParams();
+    if (params?.from) searchParams.set('from', params.from);
+    if (params?.to) searchParams.set('to', params.to);
+    if (params?.scheduleId) searchParams.set('scheduleId', params.scheduleId);
+    const query = searchParams.toString();
+    return request<any[]>(`/drivers/availability${query ? `?${query}` : ''}`);
+  },
 };
 
 // Locations

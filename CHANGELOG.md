@@ -4,6 +4,63 @@ Tutte le modifiche rilevanti al progetto Fuel Logistics Management System sarann
 
 Il formato segue [Keep a Changelog](https://keepachangelog.com/it/1.0.0/).
 
+## [1.1.0] - 2026-01-25
+
+### Aggiunto
+
+#### Backend
+
+- **Endpoint stato risorse** (`src/controllers/`)
+  - `GET /api/trailers/status` - Posizione corrente cisterne (Milano/Tirano/In Viaggio)
+  - `GET /api/vehicles/status` - Stato motrici con viaggi assegnati
+  - `GET /api/drivers/availability` - Disponibilità autisti con ore lavorate/rimanenti ADR
+
+#### Frontend
+
+- **Dark Mode** (`src/components/layout/ThemeToggle.tsx`)
+  - Toggle sole/luna in alto a destra
+  - Salvataggio preferenza in localStorage
+  - Rispetto preferenza di sistema come default
+  - Aggiornato CSS calendario per dark mode
+
+- **Box Stato Risorse** (`src/pages/ScheduleDetail.tsx`)
+  - Card "Stato Cisterne" con posizione: Deposito Milano (blu), Parcheggio Tirano (arancione), In Viaggio (viola)
+  - Card "Stato Motrici" con badge disponibile/in uso e conteggio viaggi
+  - Card "Disponibilità Autisti" con barra ore settimanali (verde/giallo/rosso)
+
+- **Modal Viaggio Migliorato** (`src/pages/ScheduleDetail.tsx`)
+  - Supporto multiple cisterne (fino a `maxTrailers` della motrice)
+  - Per ogni cisterna: selezione con posizione corrente, litri caricati
+  - Checkbox "Recupero da Tirano" (pickup cisterna già parcheggiata)
+  - Checkbox "Sgancia a Tirano" (drop-off cisterna al parcheggio)
+  - Reset automatico drop-off quando si attiva pickup
+
+- **Calendario Migliorato**
+  - Eventi mostrano: Autista - Targa + Cisterne (Litri)
+  - Icona freccia giù per sgancio cisterna
+  - Icona freccia su per recupero cisterna
+  - Componente evento custom con più informazioni
+
+- **Hooks e API** (`src/hooks/`, `src/api/client.ts`)
+  - `useTrailersStatus()` - Stato cisterne
+  - `useVehiclesStatus()` - Stato motrici
+  - `useDriversAvailability()` - Disponibilità autisti
+  - Invalidazione cache risorse dopo CRUD viaggi e ottimizzazione
+
+- **Tipi TypeScript** (`src/types/index.ts`)
+  - `TrailerStatus` - Stato cisterna con posizione
+  - `VehicleStatus` - Stato motrice con viaggi
+  - `DriverAvailability` - Disponibilità autista con statistiche ADR
+
+### Corretto
+
+- **Logica stato risorse** - Lo stato attuale (IN_TRANSIT, IN_USE, DRIVING) ora considera tutti i viaggi, non solo quelli della pianificazione corrente
+- **Cache invalidation** - Le query stato risorse vengono invalidate dopo creazione/modifica/eliminazione viaggi
+- **Checkbox cisterne** - Attivando "Recupero da Tirano" ora resetta automaticamente "Sgancia a Tirano"
+- **Dark mode badge** - Aggiunte classi dark per tutti i badge colorati
+
+---
+
 ## [1.0.0] - 2026-01-25
 
 ### Aggiunto

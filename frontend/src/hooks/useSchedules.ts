@@ -58,6 +58,10 @@ export function useOptimizeSchedule() {
     mutationFn: (id: string) => schedulesApi.optimize(id),
     onSuccess: (_, id) => {
       queryClient.invalidateQueries({ queryKey: ['schedules', id] });
+      // Invalidate resource status queries
+      queryClient.invalidateQueries({ queryKey: ['trailers', 'status'] });
+      queryClient.invalidateQueries({ queryKey: ['vehicles', 'status'] });
+      queryClient.invalidateQueries({ queryKey: ['drivers', 'availability'] });
     },
   });
 }
@@ -96,6 +100,10 @@ export function useCreateTrip() {
       schedulesApi.createTrip(scheduleId, data),
     onSuccess: (_, { scheduleId }) => {
       queryClient.invalidateQueries({ queryKey: ['schedules', scheduleId] });
+      // Invalidate resource status queries
+      queryClient.invalidateQueries({ queryKey: ['trailers', 'status'] });
+      queryClient.invalidateQueries({ queryKey: ['vehicles', 'status'] });
+      queryClient.invalidateQueries({ queryKey: ['drivers', 'availability'] });
     },
   });
 }
@@ -115,6 +123,10 @@ export function useUpdateTrip() {
     }) => schedulesApi.updateTrip(scheduleId, tripId, data),
     onSuccess: (_, { scheduleId }) => {
       queryClient.invalidateQueries({ queryKey: ['schedules', scheduleId] });
+      // Invalidate resource status queries
+      queryClient.invalidateQueries({ queryKey: ['trailers', 'status'] });
+      queryClient.invalidateQueries({ queryKey: ['vehicles', 'status'] });
+      queryClient.invalidateQueries({ queryKey: ['drivers', 'availability'] });
     },
   });
 }
@@ -127,6 +139,10 @@ export function useDeleteTrip() {
       schedulesApi.deleteTrip(scheduleId, tripId),
     onSuccess: (_, { scheduleId }) => {
       queryClient.invalidateQueries({ queryKey: ['schedules', scheduleId] });
+      // Invalidate resource status queries
+      queryClient.invalidateQueries({ queryKey: ['trailers', 'status'] });
+      queryClient.invalidateQueries({ queryKey: ['vehicles', 'status'] });
+      queryClient.invalidateQueries({ queryKey: ['drivers', 'availability'] });
     },
   });
 }

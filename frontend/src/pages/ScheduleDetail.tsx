@@ -32,9 +32,10 @@ import {
   useUpdateTrip,
   useDeleteTrip,
 } from '@/hooks/useSchedules';
-import { useDrivers } from '@/hooks/useDrivers';
-import { useVehicles } from '@/hooks/useVehicles';
-import { useTrailers } from '@/hooks/useTrailers';
+import { useDriversAvailability } from '@/hooks/useDrivers';
+import { useVehiclesStatus } from '@/hooks/useVehicles';
+import { useTrailersStatus } from '@/hooks/useTrailers';
+import { useLocations } from '@/hooks/useLocations';
 import { useToast } from '@/hooks/useToast';
 import {
   Wand2,
@@ -43,6 +44,12 @@ import {
   Plus,
   ArrowLeft,
   Trash2,
+  Truck,
+  Container,
+  Users,
+  CircleDot,
+  ArrowDown,
+  ArrowUp,
 } from 'lucide-react';
 import {
   formatDate,
@@ -52,7 +59,7 @@ import {
   getStatusColor,
   getDriverTypeLabel,
 } from '@/lib/utils';
-import type { Trip, Driver, Vehicle, Trailer, ValidationResult } from '@/types';
+import type { Trip, Location, ValidationResult, TrailerStatus, VehicleStatus, DriverAvailability } from '@/types';
 
 const locales = { it };
 const localizer = dateFnsLocalizer({
@@ -62,6 +69,13 @@ const localizer = dateFnsLocalizer({
   getDay,
   locales,
 });
+
+interface TripTrailerForm {
+  trailerId: string;
+  litersLoaded: number;
+  dropOffLocationId: string;
+  isPickup: boolean;
+}
 
 export default function ScheduleDetail() {
   const { id } = useParams<{ id: string }>();
@@ -74,9 +88,15 @@ export default function ScheduleDetail() {
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
 
   const { data: schedule, isLoading } = useSchedule(id!);
-  const { data: drivers } = useDrivers({ isActive: true });
-  const { data: vehicles } = useVehicles(true);
-  const { data: trailers } = useTrailers(true);
+  const { data: driversAvailability } = useDriversAvailability({ scheduleId: id });
+  const { data: vehiclesStatus } = useVehiclesStatus({ scheduleId: id });
+  const { data: trailersStatus } = useTrailersStatus(id);
+  const { data: locations } = useLocations({ isActive: true });
+
+  const parkingLocation = useMemo(() =>
+    locations?.find((l: Location) => l.type === 'PARKING'),
+    [locations]
+  );
 
   const optimizeMutation = useOptimizeSchedule();
   const confirmMutation = useConfirmSchedule();
@@ -90,19 +110,33 @@ export default function ScheduleDetail() {
     vehicleId: '',
     date: '',
     departureTime: '06:00',
-    trailerId: '',
-    litersLoaded: 17500,
+    trailers: [] as TripTrailerForm[],
   });
+
+  const selectedVehicle = useMemo(() =>
+    vehiclesStatus?.find((v: VehicleStatus) => v.id === tripForm.vehicleId),
+    [vehiclesStatus, tripForm.vehicleId]
+  );
 
   const calendarEvents = useMemo(() => {
     if (!schedule?.trips) return [];
-    return schedule.trips.map((trip: Trip) => ({
-      id: trip.id,
-      title: `${trip.driver?.name || 'N/A'} - ${trip.vehicle?.plate || 'N/A'}`,
-      start: new Date(trip.departureTime),
-      end: trip.returnTime ? new Date(trip.returnTime) : new Date(new Date(trip.departureTime).getTime() + 8 * 60 * 60 * 1000),
-      resource: trip,
-    }));
+    return schedule.trips.map((trip: Trip) => {
+      const trailerInfo = trip.trailers?.map(t => t.trailer?.plate).filter(Boolean).join(', ') || '';
+      const totalLiters = trip.trailers?.reduce((sum, t) => sum + t.litersLoaded, 0) || 0;
+      const hasDropOff = trip.trailers?.some(t => t.dropOffLocationId);
+      const hasPickup = trip.trailers?.some(t => t.isPickup);
+
+      return {
+        id: trip.id,
+        title: `${trip.driver?.name || 'N/A'} - ${trip.vehicle?.plate || 'N/A'}`,
+        subtitle: `${trailerInfo} (${formatLiters(totalLiters)})`,
+        start: new Date(trip.departureTime),
+        end: trip.returnTime ? new Date(trip.returnTime) : new Date(new Date(trip.departureTime).getTime() + 8 * 60 * 60 * 1000),
+        resource: trip,
+        hasDropOff,
+        hasPickup,
+      };
+    });
   }, [schedule?.trips]);
 
   const handleOptimize = async () => {
@@ -158,15 +192,20 @@ export default function ScheduleDetail() {
   };
 
   const handleEventClick = (event: any) => {
-    setSelectedTrip(event.resource);
+    const trip = event.resource as Trip;
+    setSelectedTrip(trip);
     setIsNewTrip(false);
     setTripForm({
-      driverId: event.resource.driverId,
-      vehicleId: event.resource.vehicleId,
-      date: new Date(event.resource.date).toISOString().split('T')[0],
-      departureTime: formatTime(event.resource.departureTime),
-      trailerId: event.resource.trailers?.[0]?.trailerId || '',
-      litersLoaded: event.resource.trailers?.[0]?.litersLoaded || 17500,
+      driverId: trip.driverId,
+      vehicleId: trip.vehicleId,
+      date: new Date(trip.date).toISOString().split('T')[0],
+      departureTime: formatTime(trip.departureTime),
+      trailers: trip.trailers?.map(t => ({
+        trailerId: t.trailerId,
+        litersLoaded: t.litersLoaded,
+        dropOffLocationId: t.dropOffLocationId || '',
+        isPickup: t.isPickup,
+      })) || [],
     });
     setIsDialogOpen(true);
   };
@@ -180,10 +219,39 @@ export default function ScheduleDetail() {
       vehicleId: '',
       date: format(slotInfo.start, 'yyyy-MM-dd'),
       departureTime: '06:00',
-      trailerId: '',
-      litersLoaded: 17500,
+      trailers: [],
     });
     setIsDialogOpen(true);
+  };
+
+  const handleAddTrailer = () => {
+    if (!selectedVehicle || tripForm.trailers.length >= selectedVehicle.maxTrailers) return;
+    setTripForm({
+      ...tripForm,
+      trailers: [
+        ...tripForm.trailers,
+        { trailerId: '', litersLoaded: 17500, dropOffLocationId: '', isPickup: false },
+      ],
+    });
+  };
+
+  const handleRemoveTrailer = (index: number) => {
+    setTripForm({
+      ...tripForm,
+      trailers: tripForm.trailers.filter((_, i) => i !== index),
+    });
+  };
+
+  const handleTrailerChange = (index: number, field: keyof TripTrailerForm, value: any) => {
+    const newTrailers = [...tripForm.trailers];
+    newTrailers[index] = { ...newTrailers[index], [field]: value };
+
+    // Se attivo "Recupero da Tirano", resetta "Sgancia a Tirano"
+    if (field === 'isPickup' && value === true) {
+      newTrailers[index].dropOffLocationId = '';
+    }
+
+    setTripForm({ ...tripForm, trailers: newTrailers });
   };
 
   const handleSaveTrip = async () => {
@@ -197,9 +265,14 @@ export default function ScheduleDetail() {
         date: dateTime.toISOString(),
         departureTime: dateTime.toISOString(),
         returnTime: returnTime.toISOString(),
-        trailers: tripForm.trailerId
-          ? [{ trailerId: tripForm.trailerId, litersLoaded: tripForm.litersLoaded }]
-          : undefined,
+        trailers: tripForm.trailers
+          .filter(t => t.trailerId)
+          .map(t => ({
+            trailerId: t.trailerId,
+            litersLoaded: t.litersLoaded,
+            dropOffLocationId: t.dropOffLocationId || undefined,
+            isPickup: t.isPickup,
+          })),
       };
 
       if (isNewTrip) {
@@ -241,6 +314,25 @@ export default function ScheduleDetail() {
     return { style: { backgroundColor } };
   };
 
+  const EventComponent = ({ event }: { event: any }) => (
+    <div className="text-xs leading-tight">
+      <div className="font-medium truncate">{event.title}</div>
+      <div className="opacity-80 truncate">{event.subtitle}</div>
+      <div className="flex gap-1 mt-0.5">
+        {event.hasDropOff && (
+          <span title="Sgancio cisterna" className="text-yellow-200">
+            <ArrowDown className="h-3 w-3" />
+          </span>
+        )}
+        {event.hasPickup && (
+          <span title="Recupero cisterna" className="text-green-200">
+            <ArrowUp className="h-3 w-3" />
+          </span>
+        )}
+      </div>
+    </div>
+  );
+
   if (isLoading) return <p>Caricamento...</p>;
   if (!schedule) return <p>Pianificazione non trovata</p>;
 
@@ -250,8 +342,16 @@ export default function ScheduleDetail() {
     0
   );
 
+  // Group trailers by location
+  const trailersByLocation = {
+    source: trailersStatus?.filter((t: TrailerStatus) => t.currentLocation === 'SOURCE') || [],
+    parking: trailersStatus?.filter((t: TrailerStatus) => t.currentLocation === 'PARKING') || [],
+    transit: trailersStatus?.filter((t: TrailerStatus) => t.currentLocation === 'IN_TRANSIT') || [],
+  };
+
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" onClick={() => navigate('/schedules')}>
@@ -327,19 +427,144 @@ export default function ScheduleDetail() {
         </Card>
       </div>
 
+      {/* Resource Status */}
+      <div className="grid gap-4 md:grid-cols-3">
+        {/* Trailers Status */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <Container className="h-4 w-4" />
+              Stato Cisterne
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div>
+              <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+                <CircleDot className="h-3 w-3 text-blue-500" />
+                Deposito Milano ({trailersByLocation.source.length})
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {trailersByLocation.source.map((t: TrailerStatus) => (
+                  <Badge key={t.id} variant="outline" className="text-xs">
+                    {t.plate}
+                  </Badge>
+                ))}
+                {trailersByLocation.source.length === 0 && (
+                  <span className="text-xs text-muted-foreground">Nessuna</span>
+                )}
+              </div>
+            </div>
+            <div>
+              <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+                <CircleDot className="h-3 w-3 text-orange-500" />
+                Parcheggio Tirano ({trailersByLocation.parking.length})
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {trailersByLocation.parking.map((t: TrailerStatus) => (
+                  <Badge key={t.id} variant="outline" className="text-xs bg-orange-50 dark:bg-orange-950 border-orange-200 dark:border-orange-800">
+                    {t.plate}
+                  </Badge>
+                ))}
+                {trailersByLocation.parking.length === 0 && (
+                  <span className="text-xs text-muted-foreground">Nessuna</span>
+                )}
+              </div>
+            </div>
+            <div>
+              <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+                <CircleDot className="h-3 w-3 text-purple-500" />
+                In Viaggio ({trailersByLocation.transit.length})
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {trailersByLocation.transit.map((t: TrailerStatus) => (
+                  <Badge key={t.id} variant="outline" className="text-xs bg-purple-50 dark:bg-purple-950 border-purple-200 dark:border-purple-800">
+                    {t.plate}
+                  </Badge>
+                ))}
+                {trailersByLocation.transit.length === 0 && (
+                  <span className="text-xs text-muted-foreground">Nessuna</span>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Vehicles Status */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <Truck className="h-4 w-4" />
+              Stato Motrici
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {vehiclesStatus?.map((v: VehicleStatus) => (
+              <div key={v.id} className="flex items-center justify-between text-sm">
+                <div className="flex items-center gap-2">
+                  <span className="font-medium">{v.plate}</span>
+                  {v.name && <span className="text-muted-foreground">({v.name})</span>}
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge
+                    variant="outline"
+                    className={v.status === 'AVAILABLE' ? 'bg-green-50 dark:bg-green-950 text-green-700 dark:text-green-300' : 'bg-purple-50 dark:bg-purple-950 text-purple-700 dark:text-purple-300'}
+                  >
+                    {v.status === 'AVAILABLE' ? 'Disponibile' : 'In uso'}
+                  </Badge>
+                  <span className="text-xs text-muted-foreground">{v.tripsCount} viaggi</span>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+
+        {/* Drivers Status */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <Users className="h-4 w-4" />
+              Disponibilità Autisti
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {driversAvailability?.slice(0, 5).map((d: DriverAvailability) => (
+              <div key={d.id} className="flex items-center justify-between text-sm">
+                <div className="flex items-center gap-2">
+                  <span className="font-medium">{d.name}</span>
+                  <Badge variant="outline" className="text-xs">
+                    {getDriverTypeLabel(d.type)}
+                  </Badge>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-16 h-2 bg-muted rounded-full overflow-hidden">
+                    <div
+                      className={`h-full ${d.weeklyStats.percentUsed > 80 ? 'bg-red-500' : d.weeklyStats.percentUsed > 50 ? 'bg-yellow-500' : 'bg-green-500'}`}
+                      style={{ width: `${Math.min(100, d.weeklyStats.percentUsed)}%` }}
+                    />
+                  </div>
+                  <span className="text-xs text-muted-foreground w-10">
+                    {d.weeklyStats.hoursWorked}h
+                  </span>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      </div>
+
       {/* Validation Result */}
       {validationResult && (
-        <Card className={validationResult.isValid ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'}>
+        <Card className={validationResult.isValid ? 'border-green-200 bg-green-50 dark:bg-green-950 dark:border-green-800' : 'border-red-200 bg-red-50 dark:bg-red-950 dark:border-red-800'}>
           <CardHeader>
-            <CardTitle className={validationResult.isValid ? 'text-green-800' : 'text-red-800'}>
+            <CardTitle className={validationResult.isValid ? 'text-green-800 dark:text-green-200' : 'text-red-800 dark:text-red-200'}>
               Risultato Validazione ADR
             </CardTitle>
           </CardHeader>
           <CardContent>
             {validationResult.violations.length > 0 && (
               <div className="mb-4">
-                <h4 className="font-medium text-red-800">Violazioni:</h4>
-                <ul className="list-inside list-disc text-sm text-red-700">
+                <h4 className="font-medium text-red-800 dark:text-red-200">Violazioni:</h4>
+                <ul className="list-inside list-disc text-sm text-red-700 dark:text-red-300">
                   {validationResult.violations.map((v, i) => (
                     <li key={i}>{v.message} ({v.driverName})</li>
                   ))}
@@ -348,8 +573,8 @@ export default function ScheduleDetail() {
             )}
             {validationResult.warnings.length > 0 && (
               <div>
-                <h4 className="font-medium text-yellow-800">Avvisi:</h4>
-                <ul className="list-inside list-disc text-sm text-yellow-700">
+                <h4 className="font-medium text-yellow-800 dark:text-yellow-200">Avvisi:</h4>
+                <ul className="list-inside list-disc text-sm text-yellow-700 dark:text-yellow-300">
                   {validationResult.warnings.map((w, i) => (
                     <li key={i}>{w.message} ({w.driverName})</li>
                   ))}
@@ -357,7 +582,7 @@ export default function ScheduleDetail() {
               </div>
             )}
             {validationResult.isValid && validationResult.warnings.length === 0 && (
-              <p className="text-green-700">Nessuna violazione o avviso trovato.</p>
+              <p className="text-green-700 dark:text-green-300">Nessuna violazione o avviso trovato.</p>
             )}
           </CardContent>
         </Card>
@@ -378,8 +603,7 @@ export default function ScheduleDetail() {
                   vehicleId: '',
                   date: format(new Date(schedule.startDate), 'yyyy-MM-dd'),
                   departureTime: '06:00',
-                  trailerId: '',
-                  litersLoaded: 17500,
+                  trailers: [],
                 });
                 setIsDialogOpen(true);
               }}
@@ -404,6 +628,9 @@ export default function ScheduleDetail() {
               onSelectSlot={handleSlotSelect}
               selectable={schedule.status === 'DRAFT'}
               eventPropGetter={eventStyleGetter}
+              components={{
+                event: EventComponent,
+              }}
               messages={{
                 week: 'Settimana',
                 month: 'Mese',
@@ -416,56 +643,74 @@ export default function ScheduleDetail() {
         </CardContent>
       </Card>
 
-      {/* Trip Dialog */}
+      {/* Trip Dialog - Improved */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>
               {isNewTrip ? 'Nuovo Viaggio' : 'Dettaglio Viaggio'}
             </DialogTitle>
           </DialogHeader>
 
-          <div className="space-y-4">
-            <div>
-              <Label>Autista</Label>
-              <Select
-                value={tripForm.driverId}
-                onValueChange={(v) => setTripForm({ ...tripForm, driverId: v })}
-                disabled={schedule.status !== 'DRAFT'}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleziona autista..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {drivers?.map((d: Driver) => (
-                    <SelectItem key={d.id} value={d.id}>
-                      {d.name} ({getDriverTypeLabel(d.type)})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+          <div className="space-y-6">
+            {/* Driver & Vehicle row */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Autista</Label>
+                <Select
+                  value={tripForm.driverId}
+                  onValueChange={(v) => setTripForm({ ...tripForm, driverId: v })}
+                  disabled={schedule.status !== 'DRAFT'}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleziona autista..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {driversAvailability?.map((d: DriverAvailability) => (
+                      <SelectItem key={d.id} value={d.id}>
+                        <div className="flex items-center gap-2">
+                          <span>{d.name}</span>
+                          <span className="text-xs text-muted-foreground">
+                            ({getDriverTypeLabel(d.type)})
+                          </span>
+                          {d.status === 'DRIVING' && (
+                            <Badge variant="outline" className="text-xs">In viaggio</Badge>
+                          )}
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <Label>Motrice</Label>
+                <Select
+                  value={tripForm.vehicleId}
+                  onValueChange={(v) => setTripForm({ ...tripForm, vehicleId: v, trailers: [] })}
+                  disabled={schedule.status !== 'DRAFT'}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleziona motrice..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {vehiclesStatus?.map((v: VehicleStatus) => (
+                      <SelectItem key={v.id} value={v.id}>
+                        <div className="flex items-center gap-2">
+                          <span>{v.plate}</span>
+                          {v.name && <span className="text-xs text-muted-foreground">({v.name})</span>}
+                          <span className="text-xs text-muted-foreground">
+                            max {v.maxTrailers} cisterne
+                          </span>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
-            <div>
-              <Label>Motrice</Label>
-              <Select
-                value={tripForm.vehicleId}
-                onValueChange={(v) => setTripForm({ ...tripForm, vehicleId: v })}
-                disabled={schedule.status !== 'DRAFT'}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleziona motrice..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {vehicles?.map((v: Vehicle) => (
-                    <SelectItem key={v.id} value={v.id}>
-                      {v.plate} {v.name && `(${v.name})`}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
+            {/* Date & Time row */}
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label>Data</Label>
@@ -487,34 +732,124 @@ export default function ScheduleDetail() {
               </div>
             </div>
 
-            <div>
-              <Label>Cisterna</Label>
-              <Select
-                value={tripForm.trailerId}
-                onValueChange={(v) => setTripForm({ ...tripForm, trailerId: v })}
-                disabled={schedule.status !== 'DRAFT'}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleziona cisterna..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {trailers?.map((t: Trailer) => (
-                    <SelectItem key={t.id} value={t.id}>
-                      {t.plate} - {formatLiters(t.capacityLiters)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {/* Trailers Section */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <Label className="text-base">Cisterne</Label>
+                {schedule.status === 'DRAFT' && selectedVehicle && tripForm.trailers.length < selectedVehicle.maxTrailers && (
+                  <Button type="button" variant="outline" size="sm" onClick={handleAddTrailer}>
+                    <Plus className="h-4 w-4 mr-1" />
+                    Aggiungi Cisterna
+                  </Button>
+                )}
+              </div>
 
-            <div>
-              <Label>Litri Caricati</Label>
-              <Input
-                type="number"
-                value={tripForm.litersLoaded}
-                onChange={(e) => setTripForm({ ...tripForm, litersLoaded: parseInt(e.target.value) })}
-                disabled={schedule.status !== 'DRAFT'}
-              />
+              {!tripForm.vehicleId && (
+                <p className="text-sm text-muted-foreground">Seleziona prima una motrice</p>
+              )}
+
+              {tripForm.trailers.map((trailer, index) => (
+                <Card key={index} className="p-4">
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium">Cisterna {index + 1}</span>
+                      {schedule.status === 'DRAFT' && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleRemoveTrailer(index)}
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <Label className="text-xs">Cisterna</Label>
+                        <Select
+                          value={trailer.trailerId}
+                          onValueChange={(v) => handleTrailerChange(index, 'trailerId', v)}
+                          disabled={schedule.status !== 'DRAFT'}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Seleziona..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {trailersStatus?.map((t: TrailerStatus) => (
+                              <SelectItem
+                                key={t.id}
+                                value={t.id}
+                                disabled={tripForm.trailers.some((tt, i) => i !== index && tt.trailerId === t.id)}
+                              >
+                                <div className="flex items-center gap-2">
+                                  <span>{t.plate}</span>
+                                  <Badge variant="outline" className={`text-xs ${
+                                    t.currentLocation === 'SOURCE' ? 'bg-blue-50 dark:bg-blue-950' :
+                                    t.currentLocation === 'PARKING' ? 'bg-orange-50 dark:bg-orange-950' : 'bg-purple-50 dark:bg-purple-950'
+                                  }`}>
+                                    {t.currentLocationName}
+                                  </Badge>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div>
+                        <Label className="text-xs">Litri</Label>
+                        <Input
+                          type="number"
+                          value={trailer.litersLoaded}
+                          onChange={(e) => handleTrailerChange(index, 'litersLoaded', parseInt(e.target.value) || 0)}
+                          disabled={schedule.status !== 'DRAFT'}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Pickup/DropOff options */}
+                    <div className="flex items-center gap-4">
+                      <label className="flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={trailer.isPickup}
+                          onChange={(e) => handleTrailerChange(index, 'isPickup', e.target.checked)}
+                          disabled={schedule.status !== 'DRAFT'}
+                          className="rounded border-input"
+                        />
+                        <ArrowUp className="h-4 w-4 text-green-600" />
+                        Recupero da Tirano
+                      </label>
+
+                      {!trailer.isPickup && parkingLocation && (
+                        <label className="flex items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={trailer.dropOffLocationId === parkingLocation.id}
+                            onChange={(e) => handleTrailerChange(
+                              index,
+                              'dropOffLocationId',
+                              e.target.checked ? parkingLocation.id : ''
+                            )}
+                            disabled={schedule.status !== 'DRAFT'}
+                            className="rounded border-input"
+                          />
+                          <ArrowDown className="h-4 w-4 text-orange-600" />
+                          Sgancia a Tirano
+                        </label>
+                      )}
+                    </div>
+                  </div>
+                </Card>
+              ))}
+
+              {tripForm.vehicleId && tripForm.trailers.length === 0 && (
+                <p className="text-sm text-muted-foreground text-center py-4">
+                  Nessuna cisterna aggiunta. Clicca "Aggiungi Cisterna" per iniziare.
+                </p>
+              )}
             </div>
           </div>
 
@@ -529,7 +864,7 @@ export default function ScheduleDetail() {
               {schedule.status === 'DRAFT' ? 'Annulla' : 'Chiudi'}
             </Button>
             {schedule.status === 'DRAFT' && (
-              <Button onClick={handleSaveTrip}>
+              <Button onClick={handleSaveTrip} disabled={!tripForm.driverId || !tripForm.vehicleId}>
                 {isNewTrip ? 'Crea' : 'Salva'}
               </Button>
             )}

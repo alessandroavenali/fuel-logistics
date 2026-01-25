@@ -58,3 +58,10 @@ export function useTrailersAtLocation(locationId: string) {
     enabled: !!locationId,
   });
 }
+
+export function useTrailersStatus(scheduleId?: string) {
+  return useQuery({
+    queryKey: ['trailers', 'status', scheduleId],
+    queryFn: () => trailersApi.getStatus(scheduleId),
+  });
+}

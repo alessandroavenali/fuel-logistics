@@ -65,3 +65,10 @@ export function useExpiringDrivers(days?: number) {
     queryFn: () => driversApi.getExpiring(days),
   });
 }
+
+export function useDriversAvailability(params?: { from?: string; to?: string; scheduleId?: string }) {
+  return useQuery({
+    queryKey: ['drivers', 'availability', params],
+    queryFn: () => driversApi.getAvailability(params),
+  });
+}

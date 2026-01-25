@@ -11,6 +11,7 @@ const router = Router();
 
 // Vehicles
 router.get('/vehicles', vehiclesController.getVehicles);
+router.get('/vehicles/status', vehiclesController.getVehiclesStatus);
 router.get('/vehicles/:id', vehiclesController.getVehicle);
 router.post('/vehicles', vehiclesController.createVehicle);
 router.put('/vehicles/:id', vehiclesController.updateVehicle);
@@ -18,15 +19,17 @@ router.delete('/vehicles/:id', vehiclesController.deleteVehicle);
 
 // Trailers
 router.get('/trailers', trailersController.getTrailers);
+router.get('/trailers/status', trailersController.getTrailersStatus);
+router.get('/trailers/location/:locationId', trailersController.getTrailersAtLocation);
 router.get('/trailers/:id', trailersController.getTrailer);
 router.post('/trailers', trailersController.createTrailer);
 router.put('/trailers/:id', trailersController.updateTrailer);
 router.delete('/trailers/:id', trailersController.deleteTrailer);
-router.get('/trailers/location/:locationId', trailersController.getTrailersAtLocation);
 
 // Drivers
 router.get('/drivers', driversController.getDrivers);
 router.get('/drivers/expiring', driversController.getDriversWithExpiringLicenses);
+router.get('/drivers/availability', driversController.getDriversAvailability);
 router.get('/drivers/:id', driversController.getDriver);
 router.post('/drivers', driversController.createDriver);
 router.put('/drivers/:id', driversController.updateDriver);

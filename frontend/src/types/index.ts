@@ -272,3 +272,79 @@ export interface EfficiencyReport {
   completedTrips: number;
   status: ScheduleStatus;
 }
+
+// Resource status types
+export interface TrailerStatus {
+  id: string;
+  plate: string;
+  name: string | null;
+  capacityLiters: number;
+  isActive: boolean;
+  currentLocation: 'SOURCE' | 'PARKING' | 'IN_TRANSIT';
+  currentLocationId: string | null;
+  currentLocationName: string | null;
+  lastTripId: string | null;
+  lastTripDate: string | null;
+  availableFrom: string | null;
+}
+
+export interface VehicleStatus {
+  id: string;
+  plate: string;
+  name: string | null;
+  maxTrailers: number;
+  isActive: boolean;
+  status: 'AVAILABLE' | 'IN_USE';
+  currentTrip: {
+    id: string;
+    driverName: string;
+    departureTime: string;
+    returnTime: string | null;
+  } | null;
+  tripsCount: number;
+  trips: {
+    id: string;
+    date: string;
+    departureTime: string;
+    returnTime: string | null;
+    status: TripStatus;
+    driverName: string;
+    trailers: string[];
+  }[];
+}
+
+export interface DriverAvailability {
+  id: string;
+  name: string;
+  type: DriverType;
+  phone: string | null;
+  hourlyCost: number | null;
+  adrLicenseExpiry: string | null;
+  adrCisternExpiry: string | null;
+  status: 'AVAILABLE' | 'DRIVING';
+  currentTrip: {
+    id: string;
+    vehiclePlate: string;
+    departureTime: string;
+    returnTime: string | null;
+  } | null;
+  periodStats: {
+    tripsCount: number;
+    estimatedHours: number;
+  };
+  weeklyStats: {
+    hoursWorked: number;
+    hoursRemaining: number;
+    percentUsed: number;
+  };
+  daysOverLimit: string[];
+  trips: {
+    id: string;
+    date: string;
+    departureTime: string;
+    returnTime: string | null;
+    status: TripStatus;
+    vehiclePlate: string;
+    trailers: { plate: string; liters: number }[];
+  }[];
+}

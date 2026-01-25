@@ -221,6 +221,14 @@ fuel-logistics/
 - Numero viaggi
 - Percentuale copertura
 
+#### Stato Risorse (3 card)
+- **Stato Cisterne**: Posizione corrente di ogni cisterna
+  - Blu: Deposito Milano
+  - Arancione: Parcheggio Tirano
+  - Viola: In Viaggio
+- **Stato Motrici**: Disponibile/In uso + numero viaggi assegnati
+- **Disponibilità Autisti**: Barra ore settimanali con indicatore (verde <50%, giallo 50-80%, rosso >80%)
+
 #### Risultato Validazione ADR
 - Box verde se tutto OK
 - Box rosso con lista violazioni (errori bloccanti)
@@ -228,7 +236,11 @@ fuel-logistics/
 
 #### Calendario Interattivo
 - Vista settimana/mese
-- Eventi colorati per stato viaggio:
+- Eventi mostrano: Autista - Targa + Cisterne (Litri)
+- Icone speciali:
+  - ⬇️ Sgancio cisterna a Tirano
+  - ⬆️ Recupero cisterna da Tirano
+- Colori per stato viaggio:
   - Blu: PLANNED
   - Viola: IN_PROGRESS
   - Verde: COMPLETED
@@ -237,10 +249,15 @@ fuel-logistics/
 - Click su slot vuoto → crea nuovo viaggio (solo DRAFT)
 - Orari: 05:00 - 22:00
 
-#### Dialog Viaggio
-- Selezione autista, motrice, cisterna
+#### Dialog Viaggio (Migliorato)
+- Selezione autista (con tipo e stato)
+- Selezione motrice (con max cisterne)
 - Data e ora partenza
-- Litri caricati
+- **Sezione Cisterne** (multiple, fino a maxTrailers):
+  - Selezione cisterna con posizione corrente
+  - Litri caricati
+  - Checkbox "Recupero da Tirano" (pickup)
+  - Checkbox "Sgancia a Tirano" (drop-off)
 - Pulsanti: Elimina, Annulla, Salva
 
 ---
@@ -385,6 +402,15 @@ Response: { distanceKm, durationMinutes }
 
 GET /api/drivers/expiring?days=30
 Response: [drivers con patentini in scadenza]
+
+GET /api/drivers/availability?scheduleId=&from=&to=
+Response: [{ id, name, type, status, weeklyStats: { hoursWorked, hoursRemaining, percentUsed }, trips }]
+
+GET /api/vehicles/status?scheduleId=&from=&to=
+Response: [{ id, plate, status, currentTrip, tripsCount, trips }]
+
+GET /api/trailers/status?scheduleId=
+Response: [{ id, plate, currentLocation, currentLocationName, lastTripId }]
 
 GET /api/drivers/:id/worklog?from=&to=
 Response: [log ore lavorate]

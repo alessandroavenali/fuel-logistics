@@ -50,3 +50,10 @@ export function useDeleteVehicle() {
     },
   });
 }
+
+export function useVehiclesStatus(params?: { from?: string; to?: string; scheduleId?: string }) {
+  return useQuery({
+    queryKey: ['vehicles', 'status', params],
+    queryFn: () => vehiclesApi.getStatus(params),
+  });
+}
