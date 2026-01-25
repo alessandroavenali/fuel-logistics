@@ -1,9 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Calendar, dateFnsLocalizer, Views } from 'react-big-calendar';
-import { format, parse, startOfWeek, getDay, addMinutes } from 'date-fns';
-import { it } from 'date-fns/locale';
-import 'react-big-calendar/lib/css/react-big-calendar.css';
+import { format, addMinutes } from 'date-fns';
+import { DriverTimeline } from '@/components/calendar/DriverTimeline';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -65,14 +63,6 @@ import {
 } from '@/lib/utils';
 import type { Trip, Location, ValidationResult, TrailerStatus, VehicleStatus, DriverAvailability, Route, ScheduleInitialState } from '@/types';
 
-const locales = { it };
-const localizer = dateFnsLocalizer({
-  format,
-  parse,
-  startOfWeek: () => startOfWeek(new Date(), { weekStartsOn: 1 }),
-  getDay,
-  locales,
-});
 
 interface TripTrailerForm {
   trailerId: string;
@@ -341,26 +331,15 @@ export default function ScheduleDetail() {
     [vehiclesStatus, tripForm.vehicleId]
   );
 
-  const calendarEvents = useMemo(() => {
-    if (!schedule?.trips) return [];
-    return schedule.trips.map((trip: Trip) => {
-      const trailerInfo = trip.trailers?.map(t => t.trailer?.plate).filter(Boolean).join(', ') || '';
-      const totalLiters = trip.trailers?.reduce((sum, t) => sum + t.litersLoaded, 0) || 0;
-      const hasDropOff = trip.trailers?.some(t => t.dropOffLocationId);
-      const hasPickup = trip.trailers?.some(t => t.isPickup);
-
-      return {
-        id: trip.id,
-        title: `${trip.driver?.name || 'N/A'} - ${trip.vehicle?.plate || 'N/A'}`,
-        subtitle: `${trailerInfo} (${formatLiters(totalLiters)})`,
-        start: new Date(trip.departureTime),
-        end: trip.returnTime ? new Date(trip.returnTime) : new Date(new Date(trip.departureTime).getTime() + 8 * 60 * 60 * 1000),
-        resource: trip,
-        hasDropOff,
-        hasPickup,
-      };
-    });
-  }, [schedule?.trips]);
+  // Extract drivers list from availability data
+  const activeDrivers = useMemo(() => {
+    if (!driversAvailability) return [];
+    return driversAvailability.map((d: DriverAvailability) => ({
+      id: d.id,
+      name: d.name,
+      type: d.type,
+    }));
+  }, [driversAvailability]);
 
   const handleOptimize = async () => {
     try {
@@ -414,8 +393,7 @@ export default function ScheduleDetail() {
     }
   };
 
-  const handleEventClick = (event: any) => {
-    const trip = event.resource as Trip;
+  const handleTripSelect = (trip: Trip) => {
     setSelectedTrip(trip);
     // Don't open dialog, just select for detail panel
   };
@@ -438,15 +416,15 @@ export default function ScheduleDetail() {
     setIsDialogOpen(true);
   };
 
-  const handleSlotSelect = (slotInfo: any) => {
+  const handleSlotClick = (driverId: string, date: Date, hour: number) => {
     if (schedule?.status !== 'DRAFT') return;
     setSelectedTrip(null);
     setIsNewTrip(true);
     setTripForm({
-      driverId: '',
+      driverId: driverId,
       vehicleId: '',
-      date: format(slotInfo.start, 'yyyy-MM-dd'),
-      departureTime: '06:00',
+      date: format(date, 'yyyy-MM-dd'),
+      departureTime: `${hour.toString().padStart(2, '0')}:00`,
       trailers: [],
     });
     setIsDialogOpen(true);
@@ -530,36 +508,6 @@ export default function ScheduleDetail() {
       toast({ title: 'Errore', variant: 'destructive' });
     }
   };
-
-  const eventStyleGetter = (event: any) => {
-    const trip = event.resource as Trip;
-    let backgroundColor = '#3b82f6'; // blue
-
-    if (trip.status === 'COMPLETED') backgroundColor = '#22c55e';
-    else if (trip.status === 'CANCELLED') backgroundColor = '#ef4444';
-    else if (trip.status === 'IN_PROGRESS') backgroundColor = '#a855f7';
-
-    return { style: { backgroundColor } };
-  };
-
-  const EventComponent = ({ event }: { event: any }) => (
-    <div className="text-xs leading-tight">
-      <div className="font-medium truncate">{event.title}</div>
-      <div className="opacity-80 truncate">{event.subtitle}</div>
-      <div className="flex gap-1 mt-0.5">
-        {event.hasDropOff && (
-          <span title="Sgancio cisterna" className="text-yellow-200">
-            <ArrowDown className="h-3 w-3" />
-          </span>
-        )}
-        {event.hasPickup && (
-          <span title="Recupero cisterna" className="text-green-200">
-            <ArrowUp className="h-3 w-3" />
-          </span>
-        )}
-      </div>
-    </div>
-  );
 
   if (isLoading) return <p>Caricamento...</p>;
   if (!schedule) return <p>Pianificazione non trovata</p>;
@@ -879,33 +827,16 @@ export default function ScheduleDetail() {
           )}
         </CardHeader>
         <CardContent className="pt-0">
-          <p className="text-xs text-muted-foreground mb-2">
-            Clicca su un viaggio per vedere i dettagli
-          </p>
-          <div className="h-[350px]">
-            <Calendar
-              localizer={localizer}
-              events={calendarEvents}
-              startAccessor="start"
-              endAccessor="end"
-              defaultView={Views.WEEK}
-              views={[Views.WEEK, Views.MONTH]}
-              min={new Date(1970, 1, 1, 5, 0, 0)}
-              max={new Date(1970, 1, 1, 22, 0, 0)}
-              onSelectEvent={handleEventClick}
-              onSelectSlot={handleSlotSelect}
-              selectable={schedule.status === 'DRAFT'}
-              eventPropGetter={eventStyleGetter}
-              components={{
-                event: EventComponent,
-              }}
-              messages={{
-                week: 'Settimana',
-                month: 'Mese',
-                today: 'Oggi',
-                previous: 'Precedente',
-                next: 'Successivo',
-              }}
+          <div className="h-[500px]">
+            <DriverTimeline
+              trips={schedule.trips || []}
+              drivers={activeDrivers}
+              startDate={new Date(schedule.startDate)}
+              endDate={new Date(schedule.endDate)}
+              onSelectTrip={handleTripSelect}
+              selectedTripId={selectedTrip?.id}
+              isDraft={schedule.status === 'DRAFT'}
+              onSlotClick={handleSlotClick}
             />
           </div>
         </CardContent>

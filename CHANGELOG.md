@@ -4,6 +4,40 @@ Tutte le modifiche rilevanti al progetto Fuel Logistics Management System sarann
 
 Il formato segue [Keep a Changelog](https://keepachangelog.com/it/1.0.0/).
 
+## [1.4.0] - 2026-01-25
+
+### Modificato
+
+#### Frontend
+
+- **Calendario Pianificazione** - Redesign completo (`src/pages/ScheduleDetail.tsx`)
+  - Sostituito `react-big-calendar` con nuovo componente `DriverTimeline`
+  - Vista a "swim lanes" con una riga dedicata per ogni autista
+  - Risolto problema di sovrapposizione eventi (4+ viaggi paralleli ora leggibili)
+  - Altezza calendario aumentata da 350px a 500px
+  - Navigazione giornaliera con frecce e pillole per i giorni della settimana
+  - Scroll orizzontale per visualizzare tutte le ore (05:00 - 22:00)
+  - Barre colorate per stato viaggio:
+    - Blu = Pianificato
+    - Viola = In corso
+    - Verde = Completato
+    - Rosso = Annullato
+  - Click su barra per vedere dettaglio viaggio
+  - Click su slot vuoto (in DRAFT) per creare viaggio pre-compilato con driver e orario
+  - Legenda stati in fondo al calendario
+
+### Aggiunto
+
+#### Frontend
+
+- **Componente DriverTimeline** (`src/components/calendar/DriverTimeline.tsx`)
+  - Componente riutilizzabile per visualizzazione timeline per risorsa
+  - Props: trips, drivers, startDate, endDate, callbacks
+  - Supporto selezione viaggio e creazione da slot
+  - Responsive con scroll orizzontale
+
+---
+
 ## [1.3.0] - 2026-01-25
 
 ### Aggiunto
