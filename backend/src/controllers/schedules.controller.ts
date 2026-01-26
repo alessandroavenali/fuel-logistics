@@ -185,6 +185,8 @@ export async function calculateMaxCapacityHandler(req: Request, res: Response, n
     const prisma: PrismaClient = (req as any).prisma;
     const { startDate, endDate, initialStates } = req.body;
 
+    console.log('[calculateMax] Request:', { startDate, endDate, initialStates: initialStates?.length });
+
     if (!startDate || !endDate) {
       throw new AppError(400, 'startDate and endDate are required');
     }
@@ -195,8 +197,10 @@ export async function calculateMaxCapacityHandler(req: Request, res: Response, n
       initialStates,
     });
 
+    console.log('[calculateMax] Result:', result);
     res.json(result);
   } catch (error) {
+    console.error('[calculateMax] Error:', error);
     next(error);
   }
 }

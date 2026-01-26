@@ -75,20 +75,20 @@ export default function Schedules() {
   const calculateMaxMutation = useCalculateMaxCapacity();
   const { toast } = useToast();
 
-  // Get destination location (Livigno) as default
-  const destinationLocation = locations?.find((l: Location) => l.type === 'DESTINATION');
+  // Get parking location (Tirano) as default - trailers start empty at Tirano
+  const parkingLocation = locations?.find((l: Location) => l.type === 'PARKING');
 
   // Initialize initial states when dialog opens and data is available
   useEffect(() => {
-    if (isDialogOpen && trailers && destinationLocation) {
+    if (isDialogOpen && trailers && parkingLocation) {
       const defaultStates: TrailerInitialState[] = trailers.map((trailer: Trailer) => ({
         trailerId: trailer.id,
-        locationId: destinationLocation.id,
-        isFull: false, // Default: empty
+        locationId: parkingLocation.id,
+        isFull: false, // Default: empty at Tirano
       }));
       setInitialStates(defaultStates);
     }
-  }, [isDialogOpen, trailers, destinationLocation]);
+  }, [isDialogOpen, trailers, parkingLocation]);
 
   const updateTrailerState = (trailerId: string, field: 'locationId' | 'isFull', value: string | boolean) => {
     setInitialStates(prev => prev.map(state =>

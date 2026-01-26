@@ -4,6 +4,47 @@ Tutte le modifiche rilevanti al progetto Fuel Logistics Management System sarann
 
 Il formato segue [Keep a Changelog](https://keepachangelog.com/it/1.0.0/).
 
+## [1.7.0] - 2026-01-26
+
+### Migliorato
+
+#### Backend - Optimizer più intelligente
+
+- **Tracking cisterne a Livigno** (`src/services/optimizer.service.ts`)
+  - Aggiunto `atLivignoFull` e `atLivignoEmpty` allo stato cisterne
+  - L'optimizer ora traccia le cisterne in tutte le location (Tirano, Livigno, Milano)
+  - Gestione corretta dello stato iniziale per location tipo `DESTINATION`
+
+- **Driver Livigno possono fare SUPPLY** (`src/services/optimizer.service.ts`)
+  - Prima: driver Livigno potevano solo fare SHUTTLE
+  - Ora: se non ci sono cisterne piene da shuttlare, possono fare SUPPLY
+  - Usano cisterne vuote da Livigno o Tirano per andare a Milano
+  - Risultato: +10% capacità (da 332.500L a 367.500L su 5 giorni)
+
+- **SUPPLY e FULL_ROUND usano cisterne da Livigno**
+  - I viaggi SUPPLY ora prendono vuote sia da Tirano che da Livigno
+  - FULL_ROUND considera anche cisterne vuote a Livigno
+  - Massimizza utilizzo risorse disponibili
+
+- **Validazione initialStates** (`src/services/optimizer.service.ts`)
+  - Valida gli ID di trailers e locations prima di crearli nel DB
+  - Filtra automaticamente stati con ID non validi
+  - Evita errori di foreign key constraint
+
+#### Frontend
+
+- **Default cisterne corretto** (`src/pages/Schedules.tsx`)
+  - Prima: default era "tutte a Livigno vuote" (causava 0 viaggi)
+  - Ora: default è "tutte a Tirano vuote" (stato normale di partenza)
+
+### Corretto
+
+- **Bug 0 litri quando cisterne a Livigno**
+  - L'optimizer generava 0 viaggi se tutte le cisterne erano a Livigno
+  - Ora gestisce correttamente qualsiasi stato iniziale
+
+---
+
 ## [1.6.0] - 2026-01-26
 
 ### Aggiunto
