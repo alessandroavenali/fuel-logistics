@@ -137,9 +137,18 @@ export async function optimizeSchedule(
     throw new Error('Missing required locations (Milano, Tirano, Livigno)');
   }
 
-  // Categorize drivers by base
-  const livignoDrivers = drivers.filter(d => d.baseLocationId === livignoLocation.id);
-  const tiranoDrivers = drivers.filter(d => d.baseLocationId === tiranoLocation.id || !d.baseLocationId);
+  // Categorize drivers by base and sort by priority (RESIDENT > ON_CALL > EMERGENCY)
+  const driverPriority = { RESIDENT: 0, ON_CALL: 1, EMERGENCY: 2 };
+  const sortByPriority = (a: typeof drivers[0], b: typeof drivers[0]) =>
+    driverPriority[a.type] - driverPriority[b.type];
+
+  const livignoDrivers = drivers
+    .filter(d => d.baseLocationId === livignoLocation.id)
+    .sort(sortByPriority);
+
+  const tiranoDrivers = drivers
+    .filter(d => d.baseLocationId === tiranoLocation.id || !d.baseLocationId)
+    .sort(sortByPriority);
 
   // Initialize availability tracker
   const tracker: AvailabilityTracker = {
@@ -294,6 +303,7 @@ export async function optimizeSchedule(
 
     // --------------------------------------------------------------------
     // FASE 2: DRIVER TIRANO - Bilancio SUPPLY vs SHUTTLE
+    // Priorità: RESIDENT prima, ON_CALL solo se RESIDENT esauriti
     // --------------------------------------------------------------------
     for (const driver of tiranoDrivers) {
       if (remainingLiters <= 0) break;
@@ -303,6 +313,17 @@ export async function optimizeSchedule(
 
       // Skip emergency drivers unless needed
       if (driver.type === 'EMERGENCY') continue;
+
+      // ON_CALL solo se tutti i RESIDENT hanno già lavorato oggi
+      if (driver.type === 'ON_CALL') {
+        const residentsAvailable = tiranoDrivers
+          .filter(d => d.type === 'RESIDENT')
+          .some(d => {
+            const hours = tracker.driverHoursByDate.get(`${d.id}-${dateKey}`) || 0;
+            return hours < MAX_DAILY_HOURS - 3; // Almeno 3h libere per un viaggio
+          });
+        if (residentsAvailable) continue; // Skip ON_CALL, ci sono ancora RESIDENT disponibili
+      }
 
       // Decide trip type based on cistern state
       const fullCisternsAtTirano = tracker.cisternState.atTiranoFull.size;

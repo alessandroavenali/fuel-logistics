@@ -966,13 +966,13 @@ export default function ScheduleDetail() {
                         {t.isPickup && (
                           <Badge className="bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300 text-xs">
                             <ArrowUp className="h-3 w-3 mr-1" />
-                            Pickup
+                            Ritiro Tirano
                           </Badge>
                         )}
                         {t.dropOffLocationId && (
                           <Badge className="bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300 text-xs">
                             <ArrowDown className="h-3 w-3 mr-1" />
-                            Sgancio
+                            Lascia Tirano
                           </Badge>
                         )}
                       </div>
@@ -1251,7 +1251,7 @@ export default function ScheduleDetail() {
                       </div>
                     </div>
 
-                    {/* Pickup/DropOff options */}
+                    {/* Opzioni cisterna */}
                     <div className="flex items-center gap-4">
                       <label className="flex items-center gap-2 text-sm">
                         <input
@@ -1261,8 +1261,8 @@ export default function ScheduleDetail() {
                           disabled={schedule.status !== 'DRAFT'}
                           className="rounded border-input"
                         />
-                        <ArrowUp className="h-4 w-4 text-green-600" />
-                        Recupero da Tirano
+                        <ArrowUp className="h-4 w-4 text-purple-600" />
+                        Ritira cisterna da Tirano
                       </label>
 
                       {!trailer.isPickup && parkingLocation && (
@@ -1279,7 +1279,7 @@ export default function ScheduleDetail() {
                             className="rounded border-input"
                           />
                           <ArrowDown className="h-4 w-4 text-orange-600" />
-                          Sgancia a Tirano
+                          Lascia cisterna a Tirano
                         </label>
                       )}
                     </div>
