@@ -5,6 +5,7 @@ export const LocationTypeEnum = z.enum(['SOURCE', 'DESTINATION', 'PARKING']);
 export const DriverTypeEnum = z.enum(['RESIDENT', 'ON_CALL', 'EMERGENCY']);
 export const ScheduleStatusEnum = z.enum(['DRAFT', 'CONFIRMED', 'COMPLETED', 'CANCELLED']);
 export const TripStatusEnum = z.enum(['PLANNED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED']);
+export const TripTypeEnum = z.enum(['SHUTTLE_LIVIGNO', 'SUPPLY_MILANO', 'FULL_ROUND']);
 
 // Location schemas
 export const createLocationSchema = z.object({
@@ -47,6 +48,7 @@ export const createDriverSchema = z.object({
   adrCisternExpiry: z.string().datetime().optional(),
   weeklyWorkingDays: z.number().int().min(1).max(7).optional(),
   hourlyCost: z.number().min(0).optional(),
+  baseLocationId: z.string().uuid().optional().nullable(),
   isActive: z.boolean().optional(),
 });
 
@@ -90,6 +92,7 @@ export const createTripSchema = z.object({
   date: z.string().datetime(),
   departureTime: z.string().datetime(),
   returnTime: z.string().datetime().optional(),
+  tripType: TripTypeEnum.optional(),
   status: TripStatusEnum.optional(),
   notes: z.string().optional(),
   trailers: z

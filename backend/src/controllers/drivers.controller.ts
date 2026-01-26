@@ -13,6 +13,9 @@ export async function getDrivers(req: Request, res: Response, next: NextFunction
         ...(isActive !== undefined && { isActive: isActive === 'true' }),
         ...(type && { type: type as any }),
       },
+      include: {
+        baseLocation: true,
+      },
       orderBy: { name: 'asc' },
     });
 
@@ -30,6 +33,7 @@ export async function getDriver(req: Request, res: Response, next: NextFunction)
     const driver = await prisma.driver.findUnique({
       where: { id },
       include: {
+        baseLocation: true,
         trips: {
           take: 10,
           orderBy: { date: 'desc' },

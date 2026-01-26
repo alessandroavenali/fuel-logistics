@@ -23,12 +23,20 @@ model Location {
   routesTo              Route[]                @relation("RouteTo")
   tripDropOffs          TripTrailer[]
   scheduleInitialStates ScheduleInitialState[]
+  driversWithBase       Driver[]               @relation("DriverBase")
 }
 
 enum LocationType {
   SOURCE
   DESTINATION
   PARKING
+}
+
+// Tipo di viaggio per ottimizzazione logistica
+enum TripType {
+  SHUTTLE_LIVIGNO    // Tirano <-> Livigno: ~3.5h, 1 cisterna, 17.500L
+  SUPPLY_MILANO      // Tirano <-> Milano: ~6h, 2 cisterne, riempie deposito Tirano
+  FULL_ROUND         // Completo: ~8h, Milano -> Tirano -> Livigno -> Tirano, 17.500L
 }
 
 // Motrici
@@ -68,12 +76,14 @@ model Driver {
   adrCisternExpiry  DateTime?
   weeklyWorkingDays Int        @default(5)
   hourlyCost        Float?
+  baseLocationId    String?
   isActive          Boolean    @default(true)
   createdAt         DateTime   @default(now())
   updatedAt         DateTime   @updatedAt
 
-  trips    Trip[]
-  workLogs DriverWorkLog[]
+  baseLocation Location?       @relation("DriverBase", fields: [baseLocationId], references: [id])
+  trips        Trip[]
+  workLogs     DriverWorkLog[]
 }
 
 enum DriverType {
@@ -147,6 +157,7 @@ model Trip {
   date          DateTime
   departureTime DateTime
   returnTime    DateTime?
+  tripType      TripType   @default(FULL_ROUND)
   status        TripStatus @default(PLANNED)
   notes         String?
   createdAt     DateTime   @default(now())

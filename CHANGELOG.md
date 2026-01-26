@@ -4,6 +4,82 @@ Tutte le modifiche rilevanti al progetto Fuel Logistics Management System sarann
 
 Il formato segue [Keep a Changelog](https://keepachangelog.com/it/1.0.0/).
 
+## [1.5.0] - 2026-01-26
+
+### Aggiunto
+
+#### Backend
+
+- **Enum TripType** (`prisma/schema.prisma`)
+  - `SHUTTLE_LIVIGNO`: Tirano ↔ Livigno, 3.5h, 1 cisterna, 17.500L
+  - `SUPPLY_MILANO`: Tirano ↔ Milano, 6h, 2 cisterne, riempie deposito Tirano
+  - `FULL_ROUND`: Percorso completo, 8h, 1 cisterna, 17.500L
+
+- **Base Operativa Driver** (`prisma/schema.prisma`)
+  - Nuovo campo `baseLocationId` in model Driver
+  - Relazione `baseLocation` con Location
+  - Relazione inversa `driversWithBase` in Location
+
+- **Campo tripType in Trip** (`prisma/schema.prisma`)
+  - Tipo viaggio assegnato dall'ottimizzatore
+  - Default: FULL_ROUND
+
+- **Nuovo Algoritmo Ottimizzatore** (`src/services/optimizer.service.ts`)
+  - Supporto 3 tipi di viaggio con durate e cisterne specifiche
+  - Gestione stato cisterne: `atTiranoFull`, `atTiranoEmpty`, `atMilano`
+  - Driver Livigno: priorità massima, max 3 shuttle/giorno (52.500L)
+  - Driver Tirano: bilanciamento automatico SUPPLY vs SHUTTLE
+  - Statistiche `tripsByType` nel risultato ottimizzazione
+
+- **Tempistiche Aggiornate** (`prisma/seed.ts`)
+  - Tirano ↔ Livigno: 90 min (era 120 min)
+  - Tirano ↔ Milano: 150 min (era 180 min)
+
+- **Validatori Estesi** (`src/utils/validators.ts`)
+  - `TripTypeEnum` per validazione tipo viaggio
+  - `baseLocationId` in createDriverSchema
+
+#### Frontend
+
+- **Tipo TripType** (`src/types/index.ts`)
+  - Tipo TypeScript per i 3 tipi di viaggio
+  - Aggiornate interfacce Driver (baseLocationId, baseLocation) e Trip (tripType)
+
+- **Selezione Base Operativa** (`src/pages/Drivers.tsx`)
+  - Nuovo campo "Base Operativa" nel form autista
+  - Dropdown con Tirano e Livigno
+  - Colonna "Base" nella tabella autisti
+
+- **Badge Tipo Viaggio** (`src/pages/ScheduleDetail.tsx`)
+  - Badge colorati: Shuttle (verde), Rifornimento (blu), Completo (viola)
+  - Mostrati in header dettaglio e riepilogo viaggio
+
+- **Timeline per Tipo Viaggio** (`src/pages/ScheduleDetail.tsx`)
+  - SHUTTLE_LIVIGNO: 5 step (Tirano → Livigno → Tirano)
+  - SUPPLY_MILANO: 6 step (Tirano → Milano → Tirano)
+  - FULL_ROUND: 9 step (Tirano → Milano → Tirano → Livigno → Tirano)
+
+### Modificato
+
+- **Seed Data**: Driver con baseLocationId assegnato
+  - Marco Bianchi → Livigno (unico driver, max 3 shuttle/giorno)
+  - Altri 4 driver → Tirano
+
+- **Controller Drivers**: Include `baseLocation` nelle query getDrivers e getDriver
+
+### Capacità Sistema
+
+| Scenario | Litri/giorno |
+|----------|--------------|
+| 1 driver Livigno (3 shuttle) | 52.500L |
+| 2 driver Tirano (shuttle) | 35.000L |
+| 1 driver Tirano (supply) | riempie deposito |
+| **TOTALE** | **~120.000L/giorno** |
+
+**Miglioramento rispetto a versione precedente: +70% capacità**
+
+---
+
 ## [1.4.0] - 2026-01-25
 
 ### Modificato

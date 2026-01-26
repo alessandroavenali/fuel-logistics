@@ -3,6 +3,7 @@ export type LocationType = 'SOURCE' | 'DESTINATION' | 'PARKING';
 export type DriverType = 'RESIDENT' | 'ON_CALL' | 'EMERGENCY';
 export type ScheduleStatus = 'DRAFT' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED';
 export type TripStatus = 'PLANNED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
+export type TripType = 'SHUTTLE_LIVIGNO' | 'SUPPLY_MILANO' | 'FULL_ROUND';
 
 // Models
 export interface Location {
@@ -46,6 +47,8 @@ export interface Driver {
   adrCisternExpiry?: string;
   weeklyWorkingDays: number;
   hourlyCost?: number;
+  baseLocationId?: string;
+  baseLocation?: Location;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -102,6 +105,7 @@ export interface Trip {
   date: string;
   departureTime: string;
   returnTime?: string;
+  tripType: TripType;
   status: TripStatus;
   notes?: string;
   createdAt: string;
@@ -168,6 +172,7 @@ export interface CreateDriverInput {
   adrCisternExpiry?: string;
   weeklyWorkingDays?: number;
   hourlyCost?: number;
+  baseLocationId?: string | null;
   isActive?: boolean;
 }
 
@@ -202,6 +207,7 @@ export interface CreateTripInput {
   date: string;
   departureTime: string;
   returnTime?: string;
+  tripType?: TripType;
   status?: TripStatus;
   notes?: string;
   trailers?: {
@@ -251,6 +257,11 @@ export interface OptimizationResult {
     totalDrivingHours: number;
     trailersAtParking: number;
     unmetLiters: number;
+    tripsByType?: {
+      SHUTTLE_LIVIGNO: number;
+      SUPPLY_MILANO: number;
+      FULL_ROUND: number;
+    };
   };
 }
 

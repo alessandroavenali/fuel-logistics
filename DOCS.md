@@ -17,21 +17,41 @@
 **Fuel Logistics** è un sistema per gestire il trasporto di carburante da un deposito (Milano) alla base operativa montana (Livigno), con un parcheggio intermedio (Tirano) dove le cisterne possono essere sganciate.
 
 ### Flusso Operativo
-La **base operativa** è Livigno. Le motrici e cisterne vuote partono da Livigno, vanno a Milano a caricare il carburante, e tornano a Livigno.
+La **base operativa principale** è Tirano, dove sono parcheggiate motrici e cisterne. Un driver è basato a Livigno per shuttle efficienti.
 
 **Vincolo tratta montana:**
 - Livigno ↔ Tirano: **max 1 cisterna** (strada di montagna)
 - Tirano ↔ Milano: **max 2 cisterne**
 
-**Viaggio tipo:**
-1. Partenza da Livigno con 1 cisterna vuota
-2. Arrivo a Tirano → eventuale aggancio 2° cisterna vuota
-3. Partenza da Tirano con 1-2 cisterne
-4. Arrivo a Milano → carico carburante
-5. Partenza da Milano con cisterne piene
-6. Arrivo a Tirano → eventuale sgancio 1 cisterna piena
-7. Partenza da Tirano con 1 cisterna (vincolo montagna)
-8. Arrivo a Livigno → scarico carburante
+**Tempi di percorrenza:**
+- Tirano ↔ Livigno: **90 minuti**
+- Tirano ↔ Milano: **150 minuti**
+
+### Tipi di Viaggio
+
+| Tipo | Durata | Cisterne | Litri | Percorso |
+|------|--------|----------|-------|----------|
+| **SHUTTLE_LIVIGNO** | 3.5h | 1 | 17.500L | Tirano → Livigno → Tirano |
+| **SUPPLY_MILANO** | 6h | 2 | 0 (riempie Tirano) | Tirano → Milano → Tirano |
+| **FULL_ROUND** | 8h | 1 | 17.500L | Tirano → Milano → Tirano → Livigno → Tirano |
+
+**SHUTTLE_LIVIGNO** (più efficiente):
+1. Partenza da Tirano con 1 cisterna piena
+2. Arrivo a Livigno → scarico carburante
+3. Ritorno a Tirano con cisterna vuota
+
+**SUPPLY_MILANO** (rifornimento deposito):
+1. Partenza da Tirano con 2 cisterne vuote
+2. Arrivo a Milano → carico carburante
+3. Ritorno a Tirano con 2 cisterne piene (depositate per shuttle successivi)
+
+**FULL_ROUND** (viaggio completo):
+1. Partenza da Tirano con cisterna vuota
+2. Arrivo a Milano → carico carburante
+3. Ritorno a Tirano
+4. Prosegue verso Livigno con cisterna piena
+5. Scarico a Livigno
+6. Ritorno a Tirano
 
 ### Problema risolto
 - Pianificare i viaggi per soddisfare un fabbisogno di litri in un periodo
@@ -54,11 +74,15 @@ La **base operativa** è Livigno. Le motrici e cisterne vuote partono da Livigno
 | **Autista Dipendente (RESIDENT)** | Autista assunto a tempo indeterminato |
 | **Autista a Chiamata (ON_CALL)** | Autista pagato a ore quando necessario |
 | **Autista Emergenza (EMERGENCY)** | Autista per situazioni eccezionali |
+| **Base Operativa** | Luogo di partenza/arrivo dell'autista (Tirano o Livigno) |
 | **Sorgente (SOURCE)** | Luogo di carico carburante (es. Milano Deposito) |
 | **Destinazione (DESTINATION)** | Luogo di scarico finale (es. Livigno) |
 | **Parcheggio (PARKING)** | Luogo intermedio per sgancio cisterne (es. Tirano) |
 | **Schedule/Pianificazione** | Piano di viaggi per un periodo con un obiettivo di litri |
 | **Trip/Viaggio** | Singolo viaggio con autista, motrice e cisterne assegnate |
+| **SHUTTLE_LIVIGNO** | Viaggio breve Tirano ↔ Livigno (3.5h, 1 cisterna) |
+| **SUPPLY_MILANO** | Viaggio rifornimento Tirano ↔ Milano (6h, 2 cisterne) |
+| **FULL_ROUND** | Viaggio completo Tirano → Milano → Livigno → Tirano (8h) |
 | **ADR** | Accordo europeo trasporto merci pericolose - regola ore guida |
 
 ---
@@ -150,19 +174,26 @@ fuel-logistics/
 ---
 
 ### 4. Gestione Autisti (`/drivers`)
-**Scopo**: CRUD autisti con gestione certificazioni ADR
+**Scopo**: CRUD autisti con gestione certificazioni ADR e base operativa
 
 **Campi**:
 - `name`: Nome completo
 - `type`: RESIDENT | ON_CALL | EMERGENCY
 - `phone`: Telefono (opzionale)
+- `baseLocationId`: Base operativa (Tirano o Livigno)
 - `adrLicenseExpiry`: Scadenza patentino ADR
 - `adrCisternExpiry`: Scadenza specializzazione cisterne
 - `weeklyWorkingDays`: Giorni lavorativi/settimana (default: 5)
 - `hourlyCost`: Costo orario (solo per ON_CALL)
 - `isActive`: Stato
 
+**Base Operativa**:
+- **Tirano** (default): Driver assegnati a viaggi SUPPLY_MILANO o SHUTTLE_LIVIGNO
+- **Livigno**: Driver specializzato per shuttle efficienti (max 3/giorno = 52.500L)
+
 **Funzionalità**:
+- Selezione base operativa nel form
+- Colonna "Base" nella tabella con icona posizione
 - Indicatore visivo patentini in scadenza (< 30 giorni) o scaduti
 - Badge colorati per stato licenze (verde/giallo/rosso)
 - Filtro per tipo autista
@@ -374,14 +405,30 @@ fuel-logistics/
 
 ### Logica Ottimizzatore
 
-1. **Calcola viaggi necessari**: `ceil(litriRichiesti / 17500)`
-2. **Identifica giorni lavorativi** nel periodo (lun-ven)
-3. **Per ogni viaggio**:
-   - Trova autista disponibile (priorità: RESIDENT > ON_CALL)
-   - Verifica vincoli ADR
-   - Trova motrice libera
-   - Trova cisterne (prima quelle parcheggiate a Tirano, poi dalla sorgente)
-4. **Assegna risorse** e aggiorna tracker disponibilità
+L'ottimizzatore assegna automaticamente il tipo di viaggio più efficiente:
+
+**Fase 1: Driver Livigno (priorità massima)**
+1. Per ogni giorno lavorativo, assegna fino a 3 SHUTTLE_LIVIGNO
+2. Richiede cisterne piene a Tirano
+3. Consegna: 52.500L/giorno (3 × 17.500L)
+
+**Fase 2: Driver Tirano (bilanciamento)**
+1. Se cisterne piene a Tirano < 2 → assegna SUPPLY_MILANO
+2. Se cisterne piene a Tirano ≥ 1 → assegna SHUTTLE_LIVIGNO
+3. Fallback → assegna FULL_ROUND
+
+**Gestione Stato Cisterne**:
+- `atTiranoFull`: Cisterne piene pronte per shuttle
+- `atTiranoEmpty`: Cisterne vuote pronte per supply
+- `atMilano`: Cisterne al deposito sorgente
+
+**Capacità Giornaliera Teorica**:
+| Risorsa | Tipo Viaggio | Litri/giorno |
+|---------|--------------|--------------|
+| 1 driver Livigno | 3× SHUTTLE | 52.500L |
+| 2 driver Tirano | SHUTTLE | 35.000L |
+| 1 driver Tirano | SUPPLY | riempie deposito |
+| **TOTALE** | | **~120.000L** |
 
 ### Gestione Cisterne a Tirano
 
@@ -403,8 +450,14 @@ Il parcheggio di Tirano serve come punto di scambio per ottimizzare i viaggi:
 
 ### Stima Durata Viaggio
 
-- Durata standard: **8 ore** (andata Milano-Livigno + scarico + ritorno)
+| Tipo Viaggio | Durata | Dettaglio |
+|--------------|--------|-----------|
+| SHUTTLE_LIVIGNO | 3.5h | 90min andata + 90min ritorno + 30min scarico |
+| SUPPLY_MILANO | 6h | 150min andata + 150min ritorno + 60min carico |
+| FULL_ROUND | 8h | Milano (150min) + Tirano + Livigno (90min) + ritorno |
+
 - Orario partenza default: **06:00**
+- Driver Livigno: partenze scaglionate ogni 3.5h (06:00, 09:30, 13:00)
 
 ---
 
@@ -491,7 +544,7 @@ Trailer (Cisterne)
 
 Driver (Autisti)
 ├── id, name, type, phone, adrLicenseExpiry, adrCisternExpiry
-├── weeklyWorkingDays, hourlyCost, isActive
+├── weeklyWorkingDays, hourlyCost, baseLocationId, isActive
 
 Route (Percorsi)
 ├── id, name, fromLocationId, toLocationId
@@ -502,7 +555,7 @@ Schedule (Pianificazioni)
 
 Trip (Viaggi)
 ├── id, scheduleId, vehicleId, driverId
-├── date, departureTime, returnTime, status, notes
+├── date, departureTime, returnTime, tripType, status, notes
 
 TripTrailer (Associazione Viaggio-Cisterna)
 ├── id, tripId, trailerId, litersLoaded
@@ -531,32 +584,32 @@ Trailer 1──N TripTrailer
 
 ## Dati di Test (Seed)
 
-Il seed (`npm run db:seed`) crea:
+Il seed (`npx tsx prisma/seed.ts`) crea:
 
 **Luoghi**:
 - Milano Deposito (SOURCE) - 45.4642, 9.19
 - Tirano Parcheggio (PARKING) - 46.2167, 10.1667
 - Livigno Distributore (DESTINATION) - 46.5389, 10.1353
 
-**Percorsi**:
-- Milano → Tirano: 150km, 2h30, €15 pedaggio
-- Tirano → Livigno: 45km, 45min, €0
-- Livigno → Tirano: 45km, 45min, €0
-- Tirano → Milano: 150km, 2h30, €15 pedaggio
+**Percorsi** (tempi aggiornati):
+- Milano ↔ Tirano: 150km, **150min**, €15 pedaggio
+- Tirano ↔ Livigno: 45km, **90min**, €0
 
-**Veicoli**:
-- AA123BB "Motrice 1" (max 2 cisterne)
-- CC456DD "Motrice 2" (max 2 cisterne)
+**Veicoli** (4 motrici):
+- FG001AA "Motrice Alfa" (max 2 cisterne)
+- FG002BB "Motrice Beta" (max 2 cisterne)
+- FG003CC "Motrice Gamma" (max 2 cisterne)
+- FG004DD "Motrice Delta" (max 2 cisterne)
 
-**Cisterne**:
-- TR001 "Cisterna 1" - 17.500L
-- TR002 "Cisterna 2" - 17.500L
-- TR003 "Cisterna 3" - 17.500L
+**Cisterne** (8 da 17.500L):
+- CIS-001 a CIS-008
 
-**Autisti**:
-- Mario Rossi (RESIDENT) - patentini validi 1 anno
-- Giuseppe Verdi (ON_CALL) - €25/ora
-- Luigi Bianchi (RESIDENT)
+**Autisti** (5 con base operativa):
+- Marco Bianchi (RESIDENT) - **Base: Livigno** (max 3 shuttle/giorno)
+- Luca Rossi (RESIDENT) - Base: Tirano
+- Paolo Verdi (RESIDENT) - Base: Tirano
+- Giovanni Neri (ON_CALL) - Base: Tirano, €28/ora
+- Andrea Gialli (EMERGENCY) - Base: Tirano
 
 ---
 

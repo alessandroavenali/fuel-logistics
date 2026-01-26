@@ -61,7 +61,26 @@ import {
   getStatusColor,
   getDriverTypeLabel,
 } from '@/lib/utils';
-import type { Trip, Location, ValidationResult, TrailerStatus, VehicleStatus, DriverAvailability, Route, ScheduleInitialState } from '@/types';
+import type { Trip, Location, ValidationResult, TrailerStatus, VehicleStatus, DriverAvailability, Route, ScheduleInitialState, TripType } from '@/types';
+
+// Helper per badge tipo viaggio
+const getTripTypeBadge = (type: TripType) => {
+  const badges: Record<TripType, { label: string; className: string }> = {
+    SHUTTLE_LIVIGNO: {
+      label: 'Shuttle',
+      className: 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300',
+    },
+    SUPPLY_MILANO: {
+      label: 'Rifornimento',
+      className: 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300',
+    },
+    FULL_ROUND: {
+      label: 'Completo',
+      className: 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300',
+    },
+  };
+  return badges[type] || badges.FULL_ROUND;
+};
 
 
 interface TripTrailerForm {
@@ -114,10 +133,11 @@ export default function ScheduleDetail() {
     return map;
   }, [routes]);
 
-  // Calculate trip timeline based on routes and trailer operations
-  // FLOW: Base is Livigno. Trucks go to Milano to load fuel, then return.
-  // Constraint: Livigno <-> Tirano = max 1 trailer (mountain road)
-  //             Tirano <-> Milano = max 2 trailers
+  // Calculate trip timeline based on trip type and routes
+  // TIPI DI VIAGGIO:
+  // - SHUTTLE_LIVIGNO: Tirano -> Livigno -> Tirano (3.5h, 1 cisterna)
+  // - SUPPLY_MILANO: Tirano -> Milano -> Tirano (6h, 2 cisterne)
+  // - FULL_ROUND: Tirano -> Milano -> Tirano -> Livigno -> Tirano (8h, 1 cisterna)
   const calculateTimeline = useMemo(() => {
     return (trip: Trip | null) => {
       if (!trip || !routeMap || !sourceLocation || !parkingLocation || !destinationLocation) {
@@ -133,179 +153,222 @@ export default function ScheduleDetail() {
         trailers?: Array<{ plate: string; full: boolean }>;
       }> = [];
 
-      // All trailers for this trip
       const allTrailers = trip.trailers || [];
       const totalLiters = allTrailers.reduce((sum, t) => sum + t.litersLoaded, 0);
-
-      // Trailers dropped off at Tirano (on return, full)
-      const dropOffTrailers = allTrailers.filter(t => t.dropOffLocationId);
-
-      // CONSTRAINT: Livigno <-> Tirano = max 1 trailer
-      // First trailer starts from Livigno, additional trailers are picked up at Tirano
-      const firstTrailer = allTrailers.length > 0 ? [allTrailers[0]] : [];
-      const tiranoPickupTrailers = allTrailers.slice(1); // All others picked up at Tirano
-
       let currentTime = new Date(trip.departureTime);
 
-      // Durations (in minutes)
       const LOAD_TIME = 30;
       const UNLOAD_TIME = 30;
-      const DROPOFF_TIME = 15;
-      const PICKUP_TIME = 15;
 
-      // Get route duration
       const getRouteDuration = (fromId: string, toId: string): number => {
         const route = routeMap[`${fromId}-${toId}`];
-        return route?.durationMinutes || 60; // fallback
+        return route?.durationMinutes || 60;
       };
 
-      // Helper to get trailer info
       const getTrailerPlates = (trailers: typeof trip.trailers, full: boolean) =>
         trailers?.map(t => ({ plate: t.trailer?.plate || '?', full })) || [];
 
-      // === OUTBOUND: Livigno -> Milano (empty trailers) ===
+      const tripType = trip.tripType || 'FULL_ROUND';
 
-      // 1. Departure from Livigno (base) with max 1 empty trailer (mountain constraint)
-      timeline.push({
-        time: new Date(currentTime),
-        location: destinationLocation.name,
-        action: 'Partenza',
-        icon: 'start',
-        trailers: getTrailerPlates(firstTrailer, false),
-      });
-
-      // 2. Livigno -> Tirano
-      const livignoTiranoTime = getRouteDuration(destinationLocation.id, parkingLocation.id);
-      currentTime = addMinutes(currentTime, livignoTiranoTime);
-
-      timeline.push({
-        time: new Date(currentTime),
-        location: parkingLocation.name,
-        action: 'Arrivo',
-        icon: 'arrive',
-        trailers: getTrailerPlates(firstTrailer, false),
-      });
-
-      // 3. If picking up additional trailers at Tirano (empty, for loading at Milano)
-      if (tiranoPickupTrailers.length > 0) {
+      // === SHUTTLE_LIVIGNO: Tirano -> Livigno -> Tirano ===
+      if (tripType === 'SHUTTLE_LIVIGNO') {
+        // 1. Partenza da Tirano con cisterna piena
         timeline.push({
           time: new Date(currentTime),
           location: parkingLocation.name,
-          action: tiranoPickupTrailers.length === 1 ? 'Aggancio cisterna' : 'Aggancio cisterne',
-          icon: 'pickup',
-          trailers: getTrailerPlates(tiranoPickupTrailers, false),
+          action: 'Partenza con cisterna piena',
+          icon: 'start',
+          trailers: getTrailerPlates(allTrailers, true),
         });
-        currentTime = addMinutes(currentTime, PICKUP_TIME * tiranoPickupTrailers.length);
-      }
 
-      // 4. Departure from Tirano toward Milano (now with all trailers)
-      timeline.push({
-        time: new Date(currentTime),
-        location: parkingLocation.name,
-        action: 'Partenza verso Milano',
-        icon: 'depart',
-        trailers: getTrailerPlates(allTrailers, false),
-      });
+        // 2. Tirano -> Livigno
+        currentTime = addMinutes(currentTime, getRouteDuration(parkingLocation.id, destinationLocation.id));
+        timeline.push({
+          time: new Date(currentTime),
+          location: destinationLocation.name,
+          action: 'Arrivo a Livigno',
+          icon: 'arrive',
+          trailers: getTrailerPlates(allTrailers, true),
+        });
 
-      // 5. Tirano -> Milano
-      const tiranoMilanoTime = getRouteDuration(parkingLocation.id, sourceLocation.id);
-      currentTime = addMinutes(currentTime, tiranoMilanoTime);
+        // 3. Scarico
+        timeline.push({
+          time: new Date(currentTime),
+          location: destinationLocation.name,
+          action: 'Scarico carburante',
+          icon: 'unload',
+          details: `${totalLiters.toLocaleString()} L`,
+          trailers: getTrailerPlates(allTrailers, false),
+        });
+        currentTime = addMinutes(currentTime, UNLOAD_TIME);
 
-      timeline.push({
-        time: new Date(currentTime),
-        location: sourceLocation.name,
-        action: 'Arrivo',
-        icon: 'arrive',
-        trailers: getTrailerPlates(allTrailers, false),
-      });
+        // 4. Livigno -> Tirano (ritorno)
+        timeline.push({
+          time: new Date(currentTime),
+          location: destinationLocation.name,
+          action: 'Partenza verso Tirano',
+          icon: 'depart',
+          trailers: getTrailerPlates(allTrailers, false),
+        });
 
-      // 6. Load fuel at Milano
-      timeline.push({
-        time: new Date(currentTime),
-        location: sourceLocation.name,
-        action: 'Carico carburante',
-        icon: 'load',
-        details: `${totalLiters.toLocaleString()} L`,
-        trailers: getTrailerPlates(allTrailers, true),
-      });
-      currentTime = addMinutes(currentTime, LOAD_TIME);
-
-      // === RETURN: Milano -> Livigno (full trailers) ===
-
-      // 7. Departure from Milano with full trailers
-      timeline.push({
-        time: new Date(currentTime),
-        location: sourceLocation.name,
-        action: 'Partenza verso Livigno',
-        icon: 'depart',
-        trailers: getTrailerPlates(allTrailers, true),
-      });
-
-      // 8. Milano -> Tirano
-      const milanoTiranoTime = getRouteDuration(sourceLocation.id, parkingLocation.id);
-      currentTime = addMinutes(currentTime, milanoTiranoTime);
-
-      timeline.push({
-        time: new Date(currentTime),
-        location: parkingLocation.name,
-        action: 'Arrivo',
-        icon: 'arrive',
-        trailers: getTrailerPlates(allTrailers, true),
-      });
-
-      // 9. If dropping off a trailer at Tirano (full, to be picked up later)
-      if (dropOffTrailers.length > 0) {
+        currentTime = addMinutes(currentTime, getRouteDuration(destinationLocation.id, parkingLocation.id));
         timeline.push({
           time: new Date(currentTime),
           location: parkingLocation.name,
-          action: 'Sgancio cisterna',
-          icon: 'dropoff',
-          trailers: getTrailerPlates(dropOffTrailers, true),
+          action: 'Fine turno',
+          icon: 'end',
+          trailers: getTrailerPlates(allTrailers, false),
         });
-        currentTime = addMinutes(currentTime, DROPOFF_TIME);
       }
 
-      // 10. Departure from Tirano toward Livigno (max 1 trailer on mountain road)
-      const trailersToLivigno = allTrailers.filter(t => !t.dropOffLocationId);
-      timeline.push({
-        time: new Date(currentTime),
-        location: parkingLocation.name,
-        action: 'Partenza verso Livigno',
-        icon: 'depart',
-        trailers: getTrailerPlates(trailersToLivigno, true),
-      });
+      // === SUPPLY_MILANO: Tirano -> Milano -> Tirano ===
+      else if (tripType === 'SUPPLY_MILANO') {
+        // 1. Partenza da Tirano con cisterne vuote
+        timeline.push({
+          time: new Date(currentTime),
+          location: parkingLocation.name,
+          action: 'Partenza con cisterne vuote',
+          icon: 'start',
+          trailers: getTrailerPlates(allTrailers, false),
+        });
 
-      // 11. Tirano -> Livigno
-      const tiranoLivignoTime = getRouteDuration(parkingLocation.id, destinationLocation.id);
-      currentTime = addMinutes(currentTime, tiranoLivignoTime);
+        // 2. Tirano -> Milano
+        currentTime = addMinutes(currentTime, getRouteDuration(parkingLocation.id, sourceLocation.id));
+        timeline.push({
+          time: new Date(currentTime),
+          location: sourceLocation.name,
+          action: 'Arrivo a Milano',
+          icon: 'arrive',
+          trailers: getTrailerPlates(allTrailers, false),
+        });
 
-      timeline.push({
-        time: new Date(currentTime),
-        location: destinationLocation.name,
-        action: 'Arrivo',
-        icon: 'arrive',
-        trailers: getTrailerPlates(trailersToLivigno, true),
-      });
+        // 3. Carico
+        timeline.push({
+          time: new Date(currentTime),
+          location: sourceLocation.name,
+          action: 'Carico carburante',
+          icon: 'load',
+          details: `${totalLiters.toLocaleString()} L`,
+          trailers: getTrailerPlates(allTrailers, true),
+        });
+        currentTime = addMinutes(currentTime, LOAD_TIME * allTrailers.length);
 
-      // 12. Unload at Livigno
-      const litersUnloaded = trailersToLivigno.reduce((sum, t) => sum + t.litersLoaded, 0);
-      timeline.push({
-        time: new Date(currentTime),
-        location: destinationLocation.name,
-        action: 'Scarico carburante',
-        icon: 'unload',
-        details: `${litersUnloaded.toLocaleString()} L`,
-        trailers: getTrailerPlates(trailersToLivigno, false),
-      });
-      currentTime = addMinutes(currentTime, UNLOAD_TIME);
+        // 4. Milano -> Tirano (ritorno)
+        timeline.push({
+          time: new Date(currentTime),
+          location: sourceLocation.name,
+          action: 'Partenza verso Tirano',
+          icon: 'depart',
+          trailers: getTrailerPlates(allTrailers, true),
+        });
 
-      // 13. End - truck back at base
-      timeline.push({
-        time: new Date(currentTime),
-        location: destinationLocation.name,
-        action: 'Fine turno',
-        icon: 'end',
-      });
+        currentTime = addMinutes(currentTime, getRouteDuration(sourceLocation.id, parkingLocation.id));
+        timeline.push({
+          time: new Date(currentTime),
+          location: parkingLocation.name,
+          action: 'Fine turno - Cisterne piene a Tirano',
+          icon: 'end',
+          trailers: getTrailerPlates(allTrailers, true),
+        });
+      }
+
+      // === FULL_ROUND: Tirano -> Milano -> Tirano -> Livigno -> Tirano ===
+      else {
+        // 1. Partenza da Tirano
+        timeline.push({
+          time: new Date(currentTime),
+          location: parkingLocation.name,
+          action: 'Partenza verso Milano',
+          icon: 'start',
+          trailers: getTrailerPlates(allTrailers, false),
+        });
+
+        // 2. Tirano -> Milano
+        currentTime = addMinutes(currentTime, getRouteDuration(parkingLocation.id, sourceLocation.id));
+        timeline.push({
+          time: new Date(currentTime),
+          location: sourceLocation.name,
+          action: 'Arrivo a Milano',
+          icon: 'arrive',
+          trailers: getTrailerPlates(allTrailers, false),
+        });
+
+        // 3. Carico a Milano
+        timeline.push({
+          time: new Date(currentTime),
+          location: sourceLocation.name,
+          action: 'Carico carburante',
+          icon: 'load',
+          details: `${totalLiters.toLocaleString()} L`,
+          trailers: getTrailerPlates(allTrailers, true),
+        });
+        currentTime = addMinutes(currentTime, LOAD_TIME);
+
+        // 4. Milano -> Tirano
+        timeline.push({
+          time: new Date(currentTime),
+          location: sourceLocation.name,
+          action: 'Partenza verso Tirano',
+          icon: 'depart',
+          trailers: getTrailerPlates(allTrailers, true),
+        });
+
+        currentTime = addMinutes(currentTime, getRouteDuration(sourceLocation.id, parkingLocation.id));
+        timeline.push({
+          time: new Date(currentTime),
+          location: parkingLocation.name,
+          action: 'Arrivo a Tirano',
+          icon: 'arrive',
+          trailers: getTrailerPlates(allTrailers, true),
+        });
+
+        // 5. Tirano -> Livigno
+        timeline.push({
+          time: new Date(currentTime),
+          location: parkingLocation.name,
+          action: 'Partenza verso Livigno',
+          icon: 'depart',
+          trailers: getTrailerPlates(allTrailers, true),
+        });
+
+        currentTime = addMinutes(currentTime, getRouteDuration(parkingLocation.id, destinationLocation.id));
+        timeline.push({
+          time: new Date(currentTime),
+          location: destinationLocation.name,
+          action: 'Arrivo a Livigno',
+          icon: 'arrive',
+          trailers: getTrailerPlates(allTrailers, true),
+        });
+
+        // 6. Scarico a Livigno
+        timeline.push({
+          time: new Date(currentTime),
+          location: destinationLocation.name,
+          action: 'Scarico carburante',
+          icon: 'unload',
+          details: `${totalLiters.toLocaleString()} L`,
+          trailers: getTrailerPlates(allTrailers, false),
+        });
+        currentTime = addMinutes(currentTime, UNLOAD_TIME);
+
+        // 7. Livigno -> Tirano (ritorno)
+        timeline.push({
+          time: new Date(currentTime),
+          location: destinationLocation.name,
+          action: 'Partenza verso Tirano',
+          icon: 'depart',
+          trailers: getTrailerPlates(allTrailers, false),
+        });
+
+        currentTime = addMinutes(currentTime, getRouteDuration(destinationLocation.id, parkingLocation.id));
+        timeline.push({
+          time: new Date(currentTime),
+          location: parkingLocation.name,
+          action: 'Fine turno',
+          icon: 'end',
+          trailers: getTrailerPlates(allTrailers, false),
+        });
+      }
 
       return timeline;
     };
@@ -850,6 +913,9 @@ export default function ScheduleDetail() {
               <CardTitle className="flex items-center gap-2">
                 <Clock className="h-5 w-5" />
                 Dettaglio Viaggio - {formatDate(selectedTrip.departureTime)}
+                <Badge className={getTripTypeBadge(selectedTrip.tripType).className}>
+                  {getTripTypeBadge(selectedTrip.tripType).label}
+                </Badge>
               </CardTitle>
               <div className="flex gap-2">
                 {schedule.status === 'DRAFT' && (
@@ -917,6 +983,7 @@ export default function ScheduleDetail() {
                 <div>
                   <h4 className="text-sm font-medium text-muted-foreground mb-2">Riepilogo</h4>
                   <div className="text-sm space-y-1">
+                    <p>Tipo viaggio: <Badge className={`${getTripTypeBadge(selectedTrip.tripType).className} text-xs`}>{getTripTypeBadge(selectedTrip.tripType).label}</Badge></p>
                     <p>Totale litri: <span className="font-medium">{formatLiters(selectedTrip.trailers?.reduce((sum, t) => sum + t.litersLoaded, 0) || 0)}</span></p>
                     <p>Partenza: <span className="font-medium">{formatTime(selectedTrip.departureTime)}</span></p>
                     <p>Ritorno: <span className="font-medium">{selectedTrip.returnTime ? formatTime(selectedTrip.returnTime) : '-'}</span></p>

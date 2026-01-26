@@ -30,10 +30,11 @@ import {
 } from '@/components/ui/dialog';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useDrivers, useCreateDriver, useUpdateDriver, useDeleteDriver } from '@/hooks/useDrivers';
+import { useLocations } from '@/hooks/useLocations';
 import { useToast } from '@/hooks/useToast';
-import { Plus, Pencil, Trash2, AlertTriangle } from 'lucide-react';
+import { Plus, Pencil, Trash2, AlertTriangle, MapPin } from 'lucide-react';
 import { formatDate, formatCurrency, getDriverTypeLabel, isLicenseExpiringSoon, isLicenseExpired } from '@/lib/utils';
-import type { Driver, DriverType } from '@/types';
+import type { Driver, DriverType, Location } from '@/types';
 
 const driverSchema = z.object({
   name: z.string().min(1, 'Il nome è obbligatorio'),
@@ -43,6 +44,7 @@ const driverSchema = z.object({
   adrCisternExpiry: z.string().optional(),
   weeklyWorkingDays: z.coerce.number().int().min(1).max(7),
   hourlyCost: z.coerce.number().min(0).optional(),
+  baseLocationId: z.string().optional(),
 });
 
 type DriverFormData = z.infer<typeof driverSchema>;
@@ -52,10 +54,16 @@ export default function Drivers() {
   const [editingDriver, setEditingDriver] = useState<Driver | null>(null);
 
   const { data: drivers, isLoading } = useDrivers();
+  const { data: locations } = useLocations({ isActive: true });
   const createMutation = useCreateDriver();
   const updateMutation = useUpdateDriver();
   const deleteMutation = useDeleteDriver();
   const { toast } = useToast();
+
+  // Filter locations for base selection (PARKING = Tirano, DESTINATION = Livigno)
+  const baseLocations = locations?.filter(
+    (l: Location) => l.type === 'PARKING' || l.type === 'DESTINATION'
+  ) || [];
 
   const {
     register,
@@ -76,6 +84,8 @@ export default function Drivers() {
 
   const openCreateDialog = () => {
     setEditingDriver(null);
+    // Default base location to Tirano (PARKING)
+    const tiranoLocation = baseLocations.find((l: Location) => l.type === 'PARKING');
     reset({
       name: '',
       type: 'RESIDENT',
@@ -84,6 +94,7 @@ export default function Drivers() {
       adrCisternExpiry: '',
       weeklyWorkingDays: 5,
       hourlyCost: undefined,
+      baseLocationId: tiranoLocation?.id || '',
     });
     setIsDialogOpen(true);
   };
@@ -102,6 +113,7 @@ export default function Drivers() {
         : '',
       weeklyWorkingDays: driver.weeklyWorkingDays,
       hourlyCost: driver.hourlyCost || undefined,
+      baseLocationId: driver.baseLocationId || '',
     });
     setIsDialogOpen(true);
   };
@@ -117,6 +129,7 @@ export default function Drivers() {
           ? new Date(data.adrCisternExpiry).toISOString()
           : undefined,
         hourlyCost: data.type === 'ON_CALL' ? data.hourlyCost : undefined,
+        baseLocationId: data.baseLocationId || null,
       };
 
       if (editingDriver) {
@@ -176,6 +189,7 @@ export default function Drivers() {
                 <TableRow>
                   <TableHead>Nome</TableHead>
                   <TableHead>Tipo</TableHead>
+                  <TableHead>Base</TableHead>
                   <TableHead>Telefono</TableHead>
                   <TableHead>ADR</TableHead>
                   <TableHead>Cisterne</TableHead>
@@ -198,6 +212,14 @@ export default function Drivers() {
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline">{getDriverTypeLabel(driver.type)}</Badge>
+                    </TableCell>
+                    <TableCell>
+                      {driver.baseLocation ? (
+                        <div className="flex items-center gap-1">
+                          <MapPin className="h-3 w-3 text-muted-foreground" />
+                          <span className="text-sm">{driver.baseLocation.name.split(' ')[0]}</span>
+                        </div>
+                      ) : '-'}
                     </TableCell>
                     <TableCell>{driver.phone || '-'}</TableCell>
                     <TableCell>
@@ -289,6 +311,25 @@ export default function Drivers() {
               <div>
                 <Label htmlFor="phone">Telefono</Label>
                 <Input id="phone" {...register('phone')} />
+              </div>
+
+              <div>
+                <Label htmlFor="baseLocationId">Base Operativa</Label>
+                <Select
+                  value={watch('baseLocationId') || ''}
+                  onValueChange={(value) => setValue('baseLocationId', value)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleziona base..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {baseLocations.map((location: Location) => (
+                      <SelectItem key={location.id} value={location.id}>
+                        {location.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
