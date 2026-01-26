@@ -52,6 +52,7 @@ router.delete('/routes/:id', routesController.deleteRoute);
 router.post('/routes/calculate', routesController.calculateRoute);
 
 // Schedules
+router.post('/schedules/calculate-max', schedulesController.calculateMaxCapacityHandler);
 router.get('/schedules', schedulesController.getSchedules);
 router.get('/schedules/:id', schedulesController.getSchedule);
 router.post('/schedules', schedulesController.createSchedule);

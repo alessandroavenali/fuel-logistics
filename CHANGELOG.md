@@ -4,6 +4,85 @@ Tutte le modifiche rilevanti al progetto Fuel Logistics Management System sarann
 
 Il formato segue [Keep a Changelog](https://keepachangelog.com/it/1.0.0/).
 
+## [1.6.0] - 2026-01-26
+
+### Aggiunto
+
+#### Backend
+
+- **Funzione `calculateMaxCapacity()`** (`src/services/optimizer.service.ts`)
+  - Calcola la capacità massima di consegna carburante per un periodo
+  - Input: `startDate`, `endDate`, `initialStates` (stato iniziale cisterne)
+  - Output: `maxLiters`, `workingDays`, `dailyCapacity`, `breakdown`, `constraints`
+  - Considera vincoli:
+    - Driver Livigno: max 3 shuttle/giorno × 17.500L = 52.500L/driver
+    - Driver Tirano: 2 shuttle/giorno (1 dedicato a SUPPLY per rifornimento)
+    - Ciclo cisterne: bilancia consumo vs rifornimento
+    - Veicoli: max 2 viaggi/giorno per veicolo
+    - Ore ADR: max 9h/giorno per driver
+
+- **Tipi TypeScript** (`src/services/optimizer.service.ts`)
+  - `MaxCapacityResult`: risultato calcolo con breakdown e vincoli
+  - `CalculateMaxInput`: parametri input per il calcolo
+
+- **Handler `calculateMaxCapacityHandler()`** (`src/controllers/schedules.controller.ts`)
+  - Valida input (startDate, endDate obbligatori)
+  - Chiama `calculateMaxCapacity()` e ritorna risultato JSON
+
+- **Endpoint `POST /api/schedules/calculate-max`** (`src/routes/index.ts`)
+  - Nuovo endpoint per calcolo capacità massima
+  - Posizionato prima delle route con parametro `:id` per evitare conflitti
+
+#### Frontend
+
+- **Tipi API** (`src/api/client.ts`)
+  - `MaxCapacityResult`: interfaccia risultato calcolo
+  - `CalculateMaxInput`: interfaccia parametri input
+  - Metodo `schedulesApi.calculateMax()`: chiamata endpoint
+
+- **Hook `useCalculateMaxCapacity()`** (`src/hooks/useSchedules.ts`)
+  - Mutation hook per calcolo capacità massima
+  - Ritorna `mutateAsync` per chiamata asincrona
+
+- **Pulsante MAX** (`src/pages/Schedules.tsx`)
+  - Pulsante con icona Zap accanto al campo "Litri Richiesti"
+  - Stato loading con spinner durante calcolo
+  - Validazione: richiede date selezionate prima di calcolare
+
+- **Dialog Preview Capacità Massima** (`src/pages/Schedules.tsx`)
+  - Mostra risultato calcolo in formato visuale:
+    - Litri totali in grande (es. "600.000L")
+    - Giorni lavorativi e capacità giornaliera
+    - Breakdown viaggi per tipo (Shuttle Livigno/Tirano, Supply, Full Round)
+    - Note e vincoli con bullet point gialli
+  - Pulsanti "Annulla" e "Usa questo valore"
+
+- **Funzione `handleConfirmMax()`** (`src/pages/Schedules.tsx`)
+  - Imposta `requiredLiters` con valore calcolato
+  - Auto-genera nome pianificazione se vuoto (es. "MAX 1 feb - 7 feb")
+  - Toast di conferma con riepilogo
+
+### Flusso Utente
+
+1. Apri dialog "Nuova Pianificazione"
+2. Seleziona date inizio/fine
+3. (Opzionale) Configura stato iniziale cisterne
+4. Click su **MAX** → chiamata API
+5. Dialog preview mostra "Capacità massima: 600.000L in 5 giorni"
+6. Click "Usa questo valore" → imposta litri e nome
+7. Click "Crea" → schedule creato pronto per ottimizzazione
+
+### Calcolo Teorico
+
+| Risorsa | Capacità/giorno |
+|---------|-----------------|
+| 1 Driver Livigno (3 shuttle) | 52.500L |
+| 3 Driver Tirano (2 shuttle) | 105.000L |
+| -1 Driver Tirano (supply) | -35.000L (rifornisce deposito) |
+| **TOTALE STIMATO** | **~120.000L/giorno** |
+
+---
+
 ## [1.5.0] - 2026-01-26
 
 ### Aggiunto

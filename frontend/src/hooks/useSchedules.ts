@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { schedulesApi } from '@/api/client';
+import { schedulesApi, type CalculateMaxInput } from '@/api/client';
 import type { CreateScheduleInput, CreateTripInput } from '@/types';
 
 export function useSchedules(status?: string) {
@@ -81,6 +81,12 @@ export function useConfirmSchedule() {
 export function useValidateSchedule() {
   return useMutation({
     mutationFn: (id: string) => schedulesApi.validate(id),
+  });
+}
+
+export function useCalculateMaxCapacity() {
+  return useMutation({
+    mutationFn: (data: CalculateMaxInput) => schedulesApi.calculateMax(data),
   });
 }
 

@@ -139,6 +139,29 @@ export const routesApi = {
 };
 
 // Schedules
+export interface MaxCapacityResult {
+  maxLiters: number;
+  workingDays: number;
+  breakdown: {
+    livignoDriverShuttles: number;
+    tiranoDriverShuttles: number;
+    tiranoDriverFullRounds: number;
+    supplyTrips: number;
+  };
+  dailyCapacity: number;
+  constraints: string[];
+}
+
+export interface CalculateMaxInput {
+  startDate: string;
+  endDate: string;
+  initialStates?: {
+    trailerId: string;
+    locationId: string;
+    isFull: boolean;
+  }[];
+}
+
 export const schedulesApi = {
   getAll: (status?: string) =>
     request<any[]>(`/schedules${status ? `?status=${status}` : ''}`),
@@ -150,6 +173,8 @@ export const schedulesApi = {
   optimize: (id: string) => request<any>(`/schedules/${id}/optimize`, { method: 'POST' }),
   confirm: (id: string) => request<any>(`/schedules/${id}/confirm`, { method: 'PUT' }),
   validate: (id: string) => request<any>(`/schedules/${id}/validate`, { method: 'POST' }),
+  calculateMax: (data: CalculateMaxInput) =>
+    request<MaxCapacityResult>('/schedules/calculate-max', { method: 'POST', body: JSON.stringify(data) }),
   getTrips: (id: string) => request<any[]>(`/schedules/${id}/trips`),
   createTrip: (scheduleId: string, data: any) =>
     request<any>(`/schedules/${scheduleId}/trips`, { method: 'POST', body: JSON.stringify(data) }),

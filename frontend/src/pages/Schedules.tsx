@@ -35,11 +35,13 @@ import {
   useSchedules,
   useCreateSchedule,
   useDeleteSchedule,
+  useCalculateMaxCapacity,
 } from '@/hooks/useSchedules';
+import type { MaxCapacityResult } from '@/api/client';
 import { useTrailers } from '@/hooks/useTrailers';
 import { useLocations } from '@/hooks/useLocations';
 import { useToast } from '@/hooks/useToast';
-import { Plus, Eye, Trash2 } from 'lucide-react';
+import { Plus, Eye, Trash2, Zap, Loader2 } from 'lucide-react';
 import { formatDate, formatLiters, getStatusLabel, getStatusColor } from '@/lib/utils';
 import type { Schedule, Trailer, Location } from '@/types';
 
@@ -62,12 +64,15 @@ type ScheduleFormData = z.infer<typeof scheduleSchema>;
 export default function Schedules() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [initialStates, setInitialStates] = useState<TrailerInitialState[]>([]);
+  const [isMaxPreviewOpen, setIsMaxPreviewOpen] = useState(false);
+  const [maxCapacityResult, setMaxCapacityResult] = useState<MaxCapacityResult | null>(null);
 
   const { data: schedules, isLoading } = useSchedules();
   const { data: trailers } = useTrailers(true); // Only active trailers
   const { data: locations } = useLocations({ isActive: true });
   const createMutation = useCreateSchedule();
   const deleteMutation = useDeleteSchedule();
+  const calculateMaxMutation = useCalculateMaxCapacity();
   const { toast } = useToast();
 
   // Get destination location (Livigno) as default
@@ -95,6 +100,8 @@ export default function Schedules() {
     register,
     handleSubmit,
     reset,
+    getValues,
+    setValue,
     formState: { errors },
   } = useForm<ScheduleFormData>({
     resolver: zodResolver(scheduleSchema),
@@ -142,6 +149,58 @@ export default function Schedules() {
     } catch (error) {
       toast({ title: 'Errore', description: 'Impossibile eliminare', variant: 'destructive' });
     }
+  };
+
+  const handleCalculateMax = async () => {
+    const formValues = getValues();
+    if (!formValues.startDate || !formValues.endDate) {
+      toast({
+        title: 'Errore',
+        description: 'Seleziona prima le date di inizio e fine',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      const result = await calculateMaxMutation.mutateAsync({
+        startDate: new Date(formValues.startDate).toISOString(),
+        endDate: new Date(formValues.endDate).toISOString(),
+        initialStates: initialStates.length > 0 ? initialStates : undefined,
+      });
+      setMaxCapacityResult(result);
+      setIsMaxPreviewOpen(true);
+    } catch (error) {
+      toast({
+        title: 'Errore',
+        description: 'Impossibile calcolare la capacità massima',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleConfirmMax = async () => {
+    if (!maxCapacityResult) return;
+
+    const formValues = getValues();
+    setValue('requiredLiters', maxCapacityResult.maxLiters);
+    setIsMaxPreviewOpen(false);
+
+    // Auto-generate name if empty
+    if (!formValues.name) {
+      const start = new Date(formValues.startDate);
+      const end = new Date(formValues.endDate);
+      setValue(
+        'name',
+        `MAX ${start.toLocaleDateString('it-IT', { day: 'numeric', month: 'short' })} - ${end.toLocaleDateString('it-IT', { day: 'numeric', month: 'short' })}`
+      );
+    }
+
+    toast({
+      title: 'Capacità massima impostata',
+      description: `${maxCapacityResult.maxLiters.toLocaleString()}L in ${maxCapacityResult.workingDays} giorni`,
+      variant: 'success',
+    });
   };
 
   return (
@@ -245,13 +304,30 @@ export default function Schedules() {
 
               <div>
                 <Label htmlFor="requiredLiters">Litri Richiesti</Label>
-                <Input
-                  id="requiredLiters"
-                  type="number"
-                  min={0}
-                  placeholder="es. 70000"
-                  {...register('requiredLiters')}
-                />
+                <div className="flex gap-2">
+                  <Input
+                    id="requiredLiters"
+                    type="number"
+                    min={0}
+                    placeholder="es. 70000"
+                    className="flex-1"
+                    {...register('requiredLiters')}
+                  />
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={handleCalculateMax}
+                    disabled={calculateMaxMutation.isPending}
+                    title="Calcola capacità massima"
+                  >
+                    {calculateMaxMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Zap className="h-4 w-4" />
+                    )}
+                    MAX
+                  </Button>
+                </div>
                 {errors.requiredLiters && (
                   <p className="text-sm text-destructive">{errors.requiredLiters.message}</p>
                 )}
@@ -320,6 +396,82 @@ export default function Schedules() {
               <Button type="submit">Crea</Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* MAX Capacity Preview Dialog */}
+      <Dialog open={isMaxPreviewOpen} onOpenChange={setIsMaxPreviewOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Capacità Massima Calcolata</DialogTitle>
+          </DialogHeader>
+          {maxCapacityResult && (
+            <div className="space-y-4">
+              <div className="text-center py-4 bg-muted rounded-lg">
+                <p className="text-4xl font-bold text-primary">
+                  {maxCapacityResult.maxLiters.toLocaleString()}L
+                </p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  in {maxCapacityResult.workingDays} giorni lavorativi
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  (~{maxCapacityResult.dailyCapacity.toLocaleString()}L/giorno)
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <p className="font-medium text-sm">Distribuzione viaggi stimata:</p>
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  <div className="bg-muted/50 p-2 rounded">
+                    <span className="text-muted-foreground">Shuttle Livigno:</span>
+                    <span className="font-medium ml-2">
+                      {maxCapacityResult.breakdown.livignoDriverShuttles}
+                    </span>
+                  </div>
+                  <div className="bg-muted/50 p-2 rounded">
+                    <span className="text-muted-foreground">Shuttle Tirano:</span>
+                    <span className="font-medium ml-2">
+                      {maxCapacityResult.breakdown.tiranoDriverShuttles}
+                    </span>
+                  </div>
+                  <div className="bg-muted/50 p-2 rounded">
+                    <span className="text-muted-foreground">Supply Milano:</span>
+                    <span className="font-medium ml-2">
+                      {maxCapacityResult.breakdown.supplyTrips}
+                    </span>
+                  </div>
+                  <div className="bg-muted/50 p-2 rounded">
+                    <span className="text-muted-foreground">Full Round:</span>
+                    <span className="font-medium ml-2">
+                      {maxCapacityResult.breakdown.tiranoDriverFullRounds}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {maxCapacityResult.constraints.length > 0 && (
+                <div className="space-y-2">
+                  <p className="font-medium text-sm">Note:</p>
+                  <ul className="text-sm text-muted-foreground space-y-1">
+                    {maxCapacityResult.constraints.map((constraint, idx) => (
+                      <li key={idx} className="flex items-start gap-2">
+                        <span className="text-yellow-500">•</span>
+                        {constraint}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsMaxPreviewOpen(false)}>
+              Annulla
+            </Button>
+            <Button onClick={handleConfirmMax}>
+              Usa questo valore
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

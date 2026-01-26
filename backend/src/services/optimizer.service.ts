@@ -557,3 +557,209 @@ function getWeekNumber(date: Date): number {
   const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
   return Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
 }
+
+// ============================================================================
+// CALCOLO CAPACITÀ MASSIMA
+// ============================================================================
+
+export interface MaxCapacityResult {
+  maxLiters: number;
+  workingDays: number;
+  breakdown: {
+    livignoDriverShuttles: number;
+    tiranoDriverShuttles: number;
+    tiranoDriverFullRounds: number;
+    supplyTrips: number;
+  };
+  dailyCapacity: number;
+  constraints: string[];
+}
+
+export interface CalculateMaxInput {
+  startDate: string | Date;
+  endDate: string | Date;
+  initialStates?: {
+    trailerId: string;
+    locationId: string;
+    isFull: boolean;
+  }[];
+}
+
+export async function calculateMaxCapacity(
+  prisma: PrismaClient,
+  input: CalculateMaxInput
+): Promise<MaxCapacityResult> {
+  const startDate = new Date(input.startDate);
+  const endDate = new Date(input.endDate);
+
+  // Fetch available resources
+  const [drivers, vehicles, trailers, locations] = await Promise.all([
+    prisma.driver.findMany({
+      where: { isActive: true },
+      include: { baseLocation: true },
+    }),
+    prisma.vehicle.findMany({ where: { isActive: true } }),
+    prisma.trailer.findMany({ where: { isActive: true } }),
+    prisma.location.findMany({ where: { isActive: true } }),
+  ]);
+
+  // Find key locations
+  const tiranoLocation = locations.find((l) => l.type === 'PARKING');
+  const livignoLocation = locations.find((l) => l.type === 'DESTINATION');
+
+  if (!tiranoLocation || !livignoLocation) {
+    throw new Error('Missing required locations');
+  }
+
+  // Categorize drivers
+  const livignoDrivers = drivers.filter(
+    (d) => d.baseLocationId === livignoLocation.id && d.type !== 'EMERGENCY'
+  );
+  const tiranoDrivers = drivers.filter(
+    (d) =>
+      (d.baseLocationId === tiranoLocation.id || !d.baseLocationId) &&
+      d.type !== 'EMERGENCY'
+  );
+
+  // Get working days
+  const workingDays = getWorkingDays(startDate, endDate);
+  const numWorkingDays = workingDays.length;
+
+  if (numWorkingDays === 0) {
+    return {
+      maxLiters: 0,
+      workingDays: 0,
+      breakdown: {
+        livignoDriverShuttles: 0,
+        tiranoDriverShuttles: 0,
+        tiranoDriverFullRounds: 0,
+        supplyTrips: 0,
+      },
+      dailyCapacity: 0,
+      constraints: ['Nessun giorno lavorativo nel periodo selezionato'],
+    };
+  }
+
+  const constraints: string[] = [];
+
+  // Calculate initial cistern state
+  let fullCisternsAtTirano = 0;
+  let emptyCisternsAtTirano = 0;
+
+  if (input.initialStates && input.initialStates.length > 0) {
+    for (const state of input.initialStates) {
+      const location = locations.find((l) => l.id === state.locationId);
+      if (location?.type === 'PARKING') {
+        if (state.isFull) {
+          fullCisternsAtTirano++;
+        } else {
+          emptyCisternsAtTirano++;
+        }
+      }
+    }
+  } else {
+    // Default: all trailers empty at Tirano
+    emptyCisternsAtTirano = trailers.length;
+  }
+
+  // =========================================================================
+  // CALCOLO CAPACITÀ MASSIMA TEORICA
+  // =========================================================================
+
+  // Driver Livigno: max 3 shuttle/giorno ciascuno (9h / 3.5h ≈ 2.5, arrotondato a 3)
+  const shuttlesPerLivignoDriverPerDay = MAX_SHUTTLE_PER_DAY_LIVIGNO_DRIVER;
+  const dailyLivignoShuttles = livignoDrivers.length * shuttlesPerLivignoDriverPerDay;
+  const livignoLitersPerDay = dailyLivignoShuttles * LITERS_PER_TRAILER;
+
+  // Driver Tirano: calcoliamo quanti viaggi possono fare
+  // Ogni driver Tirano può fare:
+  // - 2 SHUTTLE (3.5h × 2 = 7h) oppure
+  // - 1 SUPPLY (6h) + 1 SHUTTLE (3.5h) se necessario per rifornimento
+  // - 1 FULL_ROUND (8h) se non ci sono cisterne piene
+
+  // Strategia ottimale: 1 driver fa SUPPLY, altri fanno SHUTTLE
+  const numTiranoDriversForSupply = Math.min(1, tiranoDrivers.length); // 1 driver dedicato al rifornimento
+  const numTiranoDriversForDelivery = tiranoDrivers.length - numTiranoDriversForSupply;
+
+  // Ogni driver dedicato alla consegna può fare circa 2 shuttle al giorno
+  const shuttlesPerTiranoDriverPerDay = Math.floor(MAX_DAILY_HOURS / (TRIP_DURATIONS.SHUTTLE_LIVIGNO / 60));
+  const dailyTiranoShuttles = numTiranoDriversForDelivery * shuttlesPerTiranoDriverPerDay;
+  const tiranoLitersPerDay = dailyTiranoShuttles * LITERS_PER_TRAILER;
+
+  // Il driver SUPPLY riempie 2 cisterne per viaggio, può fare 1 SUPPLY al giorno
+  // Questo non consegna direttamente ma abilita gli shuttle
+  const supplyTripsPerDay = numTiranoDriversForSupply;
+
+  // Vincolo cisterne: servono cisterne piene per fare shuttle
+  // Con 8 cisterne e 1 SUPPLY che riempie 2 cisterne/giorno = 2 cicli possibili
+  // Ma i Livigno driver consumano cisterne piene velocemente
+
+  // Calcolo vincolo cisterne
+  const totalDailyShuttles = dailyLivignoShuttles + dailyTiranoShuttles;
+  const cisternsNeededPerDay = totalDailyShuttles; // Ogni shuttle usa 1 cisterna
+  const cisternsRefilledPerDay = supplyTripsPerDay * TRIP_TRAILERS.SUPPLY_MILANO; // SUPPLY riempie 2 cisterne
+
+  // Se le cisterne consumate > cisterne riempite, siamo limitati dalle cisterne
+  let effectiveDailyCapacity: number;
+  let actualDailyShuttles: number;
+
+  if (cisternsNeededPerDay > cisternsRefilledPerDay + fullCisternsAtTirano) {
+    // Limitati dalle cisterne: consideriamo il flusso stazionario
+    // Cisterne disponibili = iniziali piene + riempite giornalmente
+    // Ma le cisterne tornano vuote dopo consegna, quindi il limite è il ciclo di rifornimento
+
+    // In stato stazionario: shuttle/giorno = min(driver capacity, cisterne riempite + iniziali per primo giorno)
+    actualDailyShuttles = Math.min(totalDailyShuttles, cisternsRefilledPerDay + (fullCisternsAtTirano / numWorkingDays));
+    effectiveDailyCapacity = actualDailyShuttles * LITERS_PER_TRAILER;
+
+    constraints.push(
+      `Capacità limitata dal ciclo cisterne: ${cisternsRefilledPerDay} cisterne riempite/giorno vs ${totalDailyShuttles} shuttle possibili`
+    );
+  } else {
+    actualDailyShuttles = totalDailyShuttles;
+    effectiveDailyCapacity = (livignoLitersPerDay + tiranoLitersPerDay);
+  }
+
+  // Vincolo veicoli: ogni veicolo può fare max 2 viaggi/giorno
+  const vehicleCapacity = vehicles.length * 2; // viaggi/giorno
+  if (actualDailyShuttles > vehicleCapacity) {
+    actualDailyShuttles = vehicleCapacity;
+    effectiveDailyCapacity = actualDailyShuttles * LITERS_PER_TRAILER;
+    constraints.push(
+      `Capacità limitata dai veicoli: ${vehicles.length} veicoli × 2 viaggi = ${vehicleCapacity} viaggi/giorno`
+    );
+  }
+
+  // Calcolo finale
+  const maxLiters = Math.floor(effectiveDailyCapacity * numWorkingDays);
+
+  // Breakdown stimato
+  const breakdown = {
+    livignoDriverShuttles: Math.round(dailyLivignoShuttles * numWorkingDays * (actualDailyShuttles / totalDailyShuttles || 1)),
+    tiranoDriverShuttles: Math.round(dailyTiranoShuttles * numWorkingDays * (actualDailyShuttles / totalDailyShuttles || 1)),
+    tiranoDriverFullRounds: 0, // In scenario ottimale non servono
+    supplyTrips: supplyTripsPerDay * numWorkingDays,
+  };
+
+  // Aggiungi info sui driver
+  if (livignoDrivers.length === 0) {
+    constraints.push('Nessun driver con base Livigno disponibile');
+  }
+  if (tiranoDrivers.length === 0) {
+    constraints.push('Nessun driver con base Tirano disponibile');
+  }
+  if (vehicles.length < 4) {
+    constraints.push(`Solo ${vehicles.length} veicoli disponibili (ottimale: 4)`);
+  }
+  if (trailers.length < 8) {
+    constraints.push(`Solo ${trailers.length} cisterne disponibili (ottimale: 8)`);
+  }
+
+  return {
+    maxLiters,
+    workingDays: numWorkingDays,
+    breakdown,
+    dailyCapacity: Math.floor(effectiveDailyCapacity),
+    constraints,
+  };
+}

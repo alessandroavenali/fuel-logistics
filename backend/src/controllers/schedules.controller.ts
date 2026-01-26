@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { createScheduleSchema, updateScheduleSchema, createTripSchema, updateTripSchema } from '../utils/validators.js';
 import { AppError } from '../middleware/errorHandler.js';
-import { optimizeSchedule } from '../services/optimizer.service.js';
+import { optimizeSchedule, calculateMaxCapacity } from '../services/optimizer.service.js';
 import { validateTripsForSchedule } from '../services/adrValidator.service.js';
 
 export async function getSchedules(req: Request, res: Response, next: NextFunction) {
@@ -175,6 +175,27 @@ export async function deleteSchedule(req: Request, res: Response, next: NextFunc
     });
 
     res.status(204).send();
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function calculateMaxCapacityHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    const prisma: PrismaClient = (req as any).prisma;
+    const { startDate, endDate, initialStates } = req.body;
+
+    if (!startDate || !endDate) {
+      throw new AppError(400, 'startDate and endDate are required');
+    }
+
+    const result = await calculateMaxCapacity(prisma, {
+      startDate,
+      endDate,
+      initialStates,
+    });
+
+    res.json(result);
   } catch (error) {
     next(error);
   }
