@@ -405,17 +405,26 @@ fuel-logistics/
 
 ### Logica Ottimizzatore
 
-L'ottimizzatore assegna automaticamente il tipo di viaggio più efficiente:
+L'ottimizzatore traccia lo stato delle cisterne in tutte le location (Tirano, Livigno, Milano) e assegna il tipo di viaggio più efficiente:
 
-**Fase 1: Driver Livigno (priorità massima)**
-1. Per ogni giorno lavorativo, assegna fino a 3 SHUTTLE_LIVIGNO
-2. Richiede cisterne piene a Tirano
-3. Consegna: 52.500L/giorno (3 × 17.500L)
+**Stato Cisterne Tracciato:**
+- `atTiranoFull` / `atTiranoEmpty` - cisterne a Tirano
+- `atLivignoFull` / `atLivignoEmpty` - cisterne a Livigno
+- `atMilano` - cisterne al deposito
 
-**Fase 2: Driver Tirano (bilanciamento)**
-1. Se cisterne piene a Tirano < 2 → assegna SUPPLY_MILANO
-2. Se cisterne piene a Tirano ≥ 1 → assegna SHUTTLE_LIVIGNO
-3. Fallback → assegna FULL_ROUND
+**Driver Livigno:**
+1. Se cisterne piene a Tirano → SHUTTLE_LIVIGNO (max 3/giorno)
+2. Se nessuna piena ma vuote disponibili (Livigno o Tirano) → SUPPLY_MILANO
+3. Se cisterne in arrivo → aspetta
+4. Consegna potenziale: 52.500L/giorno (3 × 17.500L)
+
+**Driver Tirano:**
+1. Se cisterne piene < 2 e vuote ≥ 2 → SUPPLY_MILANO
+2. Se cisterne piene ≥ 1 → SHUTTLE_LIVIGNO
+3. Se cisterne in arrivo → aspetta
+4. Fallback con vuote disponibili → FULL_ROUND
+
+**Nota:** I viaggi SUPPLY possono usare cisterne vuote sia da Tirano che da Livigno, massimizzando l'utilizzo delle risorse.
 
 **Gestione Stato Cisterne**:
 - `atTiranoFull`: Cisterne piene pronte per shuttle
@@ -506,6 +515,7 @@ POST   /api/schedules
 PUT    /api/schedules/:id
 DELETE /api/schedules/:id
 
+POST   /api/schedules/calculate-max   → Calcola capacità massima teorica
 POST   /api/schedules/:id/optimize    → Genera turni automatici
 POST   /api/schedules/:id/validate    → Valida vincoli ADR
 PUT    /api/schedules/:id/confirm     → Conferma pianificazione

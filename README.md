@@ -20,16 +20,24 @@ Sistema di gestione e ottimizzazione dei turni di trasporto carburante.
 ## Prerequisiti
 
 - Node.js 18+
-- Docker (per PostgreSQL)
+- PostgreSQL 15+ (via Homebrew: `brew install postgresql@15`)
 - pnpm, npm o yarn
 
-## Setup
-
-### 1. Avviare il Database
+## Quick Start
 
 ```bash
-cd fuel-logistics
-docker-compose up -d
+./start.sh
+```
+
+Lo script avvia backend e frontend. Per terminare: `./start.sh --kill-only`
+
+## Setup Manuale
+
+### 1. Avviare PostgreSQL
+
+```bash
+brew services start postgresql@15
+createdb fuel_logistics
 ```
 
 ### 2. Setup Backend
@@ -94,7 +102,7 @@ fuel-logistics/
 │   │   └── seed.ts        # Seed data
 │   └── ...
 │
-└── docker-compose.yml     # PostgreSQL
+└── start.sh               # Script avvio (backend + frontend)
 ```
 
 ## API Endpoints
@@ -108,6 +116,7 @@ fuel-logistics/
 
 ### Pianificazione
 - `GET/POST /api/schedules` - Pianificazioni
+- `POST /api/schedules/calculate-max` - Calcola capacità massima teorica
 - `POST /api/schedules/:id/optimize` - Genera turni automatici
 - `POST /api/schedules/:id/validate` - Valida vincoli ADR
 - `PUT /api/schedules/:id/confirm` - Conferma pianificazione
@@ -132,10 +141,12 @@ fuel-logistics/
 ## Logica di Ottimizzazione
 
 L'algoritmo di ottimizzazione:
-1. Calcola il numero di viaggi necessari in base ai litri richiesti
-2. Distribuisce i viaggi sui giorni lavorativi disponibili
-3. Assegna autisti rispettando i vincoli ADR
-4. Gestisce le cisterne parcheggiate a Tirano (sgancio/recupero)
+1. Traccia lo stato delle cisterne in tutte le location (Tirano, Livigno, Milano)
+2. Assegna i viaggi ottimali in base alle risorse disponibili:
+   - Driver Tirano: SUPPLY, SHUTTLE, o FULL_ROUND
+   - Driver Livigno: SHUTTLE se ci sono piene, altrimenti SUPPLY
+3. Distribuisce i viaggi rispettando i vincoli ADR (9h/giorno, 56h/settimana)
+4. Massimizza i litri consegnati utilizzando cisterne da qualsiasi location
 
 ## Dati di Test
 
