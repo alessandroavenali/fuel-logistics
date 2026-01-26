@@ -62,7 +62,7 @@ export async function calculateRouteFromCoordinates(
       return estimatedResult;
     }
 
-    const data = await response.json();
+    const data = await response.json() as { routes?: Array<{ summary: { distance: number; duration: number }; geometry?: string }> };
     const route = data.routes?.[0];
 
     if (!route) {
