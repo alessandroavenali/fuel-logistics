@@ -402,17 +402,23 @@ export async function optimizeSchedule(
         let waitUntil: Date | null = null;
 
         // =================================================================
-        // TUTTI I DRIVER: SHUTTLE o SUPPLY
+        // TUTTI I DRIVER: SHUTTLE o SUPPLY - BILANCIAMENTO OTTIMALE
         //
-        // Logica semplice per massimizzare consegne:
-        // 1. Se ci sono cisterne piene → SHUTTLE (consegna subito!)
-        // 2. Se ci sono cisterne in arrivo → aspetta
-        // 3. Se restano SOLO vuote → SUPPLY per riempirle
+        // OBIETTIVO: Massimizzare litri a Livigno (priorità 1) E cisterne
+        // piene a Tirano (priorità 2, a parità di Livigno)
+        //
+        // LOGICA:
+        // 1. Se ci sono cisterne piene → SHUTTLE (consegna!)
+        // 2. Se ci sono più driver disponibili che cisterne piene,
+        //    i driver "extra" fanno SUPPLY invece di aspettare
+        // 3. Non aspettare MAI se puoi fare SUPPLY
         // 4. Fallback: FULL_ROUND
         //
-        // VINCOLO: ogni driver deve tornare alla sua base
-        // - Driver Livigno: SUPPLY dura 9h (include Livigno↔Tirano)
-        // - Driver Tirano: SUPPLY dura 6h
+        // ESEMPIO: 4 piene, 4 driver, 2 vuote
+        // - 2 driver: SHUTTLE (usano 2 piene)
+        // - 1 driver: SHUTTLE (usa 1 piena)
+        // - 1 driver: SUPPLY (usa 2 vuote) ← invece di aspettare!
+        // Risultato: stesso throughput Livigno + cisterne pronte per dopo
         // =================================================================
 
         const isLivignoDriver = driver.baseLocationId === livignoLocation.id;
@@ -426,20 +432,40 @@ export async function optimizeSchedule(
         const canDoSupply = hoursRemaining >= supplyHours && hoursUntilEndOfDay >= supplyHours;
         const canDoShuttle = hoursRemaining >= 3.5 && hoursUntilEndOfDay >= 3.5;
 
-        if (fullCisternsAvailable >= 1 && canDoShuttle) {
+        // Conta driver disponibili "adesso" (entro 30 min) per bilanciamento
+        const driversAvailableNow = sortedDrivers.filter(d =>
+          Math.abs(d.state.nextAvailable.getTime() - availableTime.getTime()) < 30 * 60 * 1000 &&
+          d.state.nextAvailable < endOfWorkDay
+        ).length;
+
+        // Calcola se questo driver dovrebbe fare SUPPLY invece di SHUTTLE
+        // per bilanciare le risorse (più driver che cisterne piene)
+        const shouldBalanceWithSupply =
+          driversAvailableNow > fullCisternsAvailable &&
+          totalEmptyCisterns >= 2 &&
+          canDoSupply &&
+          pendingFullCisterns.length < driversAvailableNow; // Non troppi SUPPLY già in corso
+
+        if (fullCisternsAvailable >= 1 && canDoShuttle && !shouldBalanceWithSupply) {
           // Priorità 1: SHUTTLE se ci sono cisterne piene
           tripType = 'SHUTTLE_LIVIGNO';
           tripDurationMinutes = TRIP_DURATIONS.SHUTTLE_LIVIGNO;
+        } else if (totalEmptyCisterns >= 2 && canDoSupply) {
+          // Priorità 2: SUPPLY - riempie cisterne per shuttle futuri
+          // IMPORTANTE: fai SUPPLY invece di aspettare!
+          tripType = 'SUPPLY_MILANO';
+          tripDurationMinutes = supplyDuration;
+        } else if (fullCisternsAvailable >= 1 && canDoShuttle) {
+          // Priorità 3: SHUTTLE anche se avremmo preferito bilanciare
+          // (ma non ci sono vuote per SUPPLY)
+          tripType = 'SHUTTLE_LIVIGNO';
+          tripDurationMinutes = TRIP_DURATIONS.SHUTTLE_LIVIGNO;
         } else if (pendingFullCisterns.length > 0) {
-          // Priorità 2: Aspetta cisterne in arrivo da SUPPLY
+          // Priorità 4: Aspetta SOLO se non puoi fare altro
           const nextCistern = pendingFullCisterns.sort((a, b) =>
             a.availableAt.getTime() - b.availableAt.getTime()
           )[0];
           waitUntil = nextCistern.availableAt;
-        } else if (totalEmptyCisterns >= 2 && canDoSupply) {
-          // Priorità 3: SUPPLY solo se non ci sono cisterne piene né in arrivo
-          tripType = 'SUPPLY_MILANO';
-          tripDurationMinutes = supplyDuration;
         } else if ((totalEmptyCisterns > 0 || tracker.cisternState.atMilano.size > 0) && hoursRemaining >= 8 && hoursUntilEndOfDay >= 8) {
           // Fallback: FULL_ROUND (va a Milano, carica, consegna a Livigno)
           tripType = 'FULL_ROUND';

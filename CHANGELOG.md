@@ -4,6 +4,39 @@ Tutte le modifiche rilevanti al progetto Fuel Logistics Management System sarann
 
 Il formato segue [Keep a Changelog](https://keepachangelog.com/it/1.0.0/).
 
+## [1.11.0] - 2026-01-27
+
+### Migliorato
+
+#### Backend - Bilanciamento SHUTTLE/SUPPLY Ottimale
+
+- **Nuova logica di bilanciamento** (`src/services/optimizer.service.ts`)
+  - Obiettivo primario: massimizzare litri a Livigno
+  - Obiettivo secondario: a parità di Livigno, massimizzare cisterne piene a Tirano
+  - Se ci sono più driver disponibili che cisterne piene, i driver "extra" fanno SUPPLY
+  - Non si aspetta MAI se si può fare SUPPLY
+
+- **Esempio caso limite risolto**:
+  - Scenario: 4 cisterne piene a Tirano, 4 driver, 2 cisterne vuote
+  - Prima: 4 SHUTTLE → 70.000L Livigno, 0 piene a Tirano
+  - Ora: 3 SHUTTLE + 1 SUPPLY → 70.000L Livigno + 35.000L pronti a Tirano
+
+- **Priorità viaggi aggiornata**:
+  1. SHUTTLE se cisterne piene e nessun bisogno di bilanciare
+  2. SUPPLY se driver in eccesso e cisterne vuote disponibili
+  3. SHUTTLE (fallback se no vuote per SUPPLY)
+  4. Aspetta solo se non può fare altro
+  5. FULL_ROUND come ultima opzione
+
+### Risultato
+
+| Scenario | Prima | Ora |
+|----------|-------|-----|
+| 4 piene, 4 driver, 2 vuote | 70.000L + 0 pronte | 70.000L + 35.000L pronte |
+| 2 piene, 4 driver, 4 vuote | 35.000L + aspetta | 35.000L + 70.000L in arrivo |
+
+---
+
 ## [1.10.0] - 2026-01-27
 
 ### Corretto
