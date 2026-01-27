@@ -11,6 +11,7 @@
   - Rosso: Annullato
   - Legenda aggiornata di conseguenza
 - **Calendario più compatto**: ridotto HOUR_WIDTH (50px), range orario 6-21, colonna autisti più stretta per evitare scroll orizzontale
+- **Tooltip cronologia viaggio**: al hover sui blocchi nel calendario appare un tooltip con la cronologia completa del viaggio (orari, location, azioni)
 
 ### Fixed
 - **Durate viaggi calcolate dinamicamente dal DB**: le durate SHUTTLE, SUPPLY, FULL_ROUND ora vengono calcolate dalle rotte nel database invece di essere hardcoded

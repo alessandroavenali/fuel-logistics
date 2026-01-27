@@ -1,11 +1,11 @@
 import { useMemo, useState } from 'react';
-import { format, addDays, subDays, isSameDay, startOfDay, parseISO } from 'date-fns';
+import { format, addDays, subDays, isSameDay, startOfDay, parseISO, addMinutes } from 'date-fns';
 import { it } from 'date-fns/locale';
-import { ChevronLeft, ChevronRight, Truck, Container, ArrowUp, ArrowDown } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Truck, Container, ArrowUp, ArrowDown, MapPin, Fuel } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
-import type { Trip, TripStatus, TripType, DriverType } from '@/types';
+import type { Trip, TripStatus, TripType, DriverType, Route, Location } from '@/types';
 
 interface TimelineDriver {
   id: string;
@@ -22,6 +22,22 @@ interface DriverTimelineProps {
   selectedTripId?: string;
   isDraft?: boolean;
   onSlotClick?: (driverId: string, date: Date, hour: number) => void;
+  // Per tooltip timeline
+  routeMap?: Record<string, Route>;
+  locations?: {
+    source?: Location;
+    parking?: Location;
+    destination?: Location;
+  };
+}
+
+// Timeline step type
+interface TimelineStep {
+  time: Date;
+  location: string;
+  action: string;
+  icon: 'start' | 'arrive' | 'depart' | 'dropoff' | 'pickup' | 'load' | 'unload' | 'end';
+  details?: string;
 }
 
 // Timeline config - compatto per evitare scroll orizzontale
@@ -70,8 +86,76 @@ export function DriverTimeline({
   selectedTripId,
   isDraft = false,
   onSlotClick,
+  routeMap,
+  locations,
 }: DriverTimelineProps) {
   const [currentDate, setCurrentDate] = useState<Date>(() => startOfDay(new Date(startDate)));
+  const [hoveredTripId, setHoveredTripId] = useState<string | null>(null);
+
+  // Calcola timeline per un trip (per tooltip)
+  const calculateTimeline = useMemo(() => {
+    return (trip: Trip): TimelineStep[] => {
+      if (!routeMap || !locations?.source || !locations?.parking || !locations?.destination) {
+        return [];
+      }
+      const { source, parking, destination } = locations;
+      const timeline: TimelineStep[] = [];
+      let currentTime = new Date(trip.departureTime);
+
+      const LOAD_TIME = 30;
+      const UNLOAD_TIME = 30;
+
+      const getRouteDuration = (fromId: string, toId: string): number => {
+        const route = routeMap[`${fromId}-${toId}`];
+        return route?.durationMinutes || 60;
+      };
+
+      const tripType = trip.tripType || 'FULL_ROUND';
+
+      if (tripType === 'SHUTTLE_LIVIGNO') {
+        timeline.push({ time: new Date(currentTime), location: parking.name, action: 'Partenza', icon: 'start' });
+        currentTime = addMinutes(currentTime, getRouteDuration(parking.id, destination.id));
+        timeline.push({ time: new Date(currentTime), location: destination.name, action: 'Arrivo', icon: 'arrive' });
+        timeline.push({ time: new Date(currentTime), location: destination.name, action: 'Scarico', icon: 'unload', details: '17.500 L' });
+        currentTime = addMinutes(currentTime, UNLOAD_TIME);
+        timeline.push({ time: new Date(currentTime), location: destination.name, action: 'Partenza', icon: 'depart' });
+        currentTime = addMinutes(currentTime, getRouteDuration(destination.id, parking.id));
+        timeline.push({ time: new Date(currentTime), location: parking.name, action: 'Fine', icon: 'end' });
+      } else if (tripType === 'SUPPLY_MILANO') {
+        timeline.push({ time: new Date(currentTime), location: parking.name, action: 'Partenza', icon: 'start' });
+        currentTime = addMinutes(currentTime, getRouteDuration(parking.id, source.id));
+        timeline.push({ time: new Date(currentTime), location: source.name, action: 'Arrivo', icon: 'arrive' });
+        timeline.push({ time: new Date(currentTime), location: source.name, action: 'Carico', icon: 'load', details: '35.000 L' });
+        currentTime = addMinutes(currentTime, LOAD_TIME * 2);
+        timeline.push({ time: new Date(currentTime), location: source.name, action: 'Partenza', icon: 'depart' });
+        currentTime = addMinutes(currentTime, getRouteDuration(source.id, parking.id));
+        timeline.push({ time: new Date(currentTime), location: parking.name, action: 'Fine', icon: 'end' });
+      } else if (tripType === 'TRANSFER_TIRANO') {
+        timeline.push({ time: new Date(currentTime), location: parking.name, action: 'Inizio sversamento', icon: 'start' });
+        timeline.push({ time: new Date(currentTime), location: parking.name, action: 'Sversamento', icon: 'unload', details: '17.500 L' });
+        currentTime = addMinutes(currentTime, 30);
+        timeline.push({ time: new Date(currentTime), location: parking.name, action: 'Fine', icon: 'end' });
+      } else if (tripType === 'FULL_ROUND') {
+        timeline.push({ time: new Date(currentTime), location: parking.name, action: 'Partenza', icon: 'start' });
+        currentTime = addMinutes(currentTime, getRouteDuration(parking.id, source.id));
+        timeline.push({ time: new Date(currentTime), location: source.name, action: 'Arrivo Milano', icon: 'arrive' });
+        timeline.push({ time: new Date(currentTime), location: source.name, action: 'Carico', icon: 'load', details: '17.500 L' });
+        currentTime = addMinutes(currentTime, LOAD_TIME);
+        timeline.push({ time: new Date(currentTime), location: source.name, action: 'Partenza', icon: 'depart' });
+        currentTime = addMinutes(currentTime, getRouteDuration(source.id, parking.id));
+        timeline.push({ time: new Date(currentTime), location: parking.name, action: 'Arrivo Tirano', icon: 'arrive' });
+        timeline.push({ time: new Date(currentTime), location: parking.name, action: 'Partenza', icon: 'depart' });
+        currentTime = addMinutes(currentTime, getRouteDuration(parking.id, destination.id));
+        timeline.push({ time: new Date(currentTime), location: destination.name, action: 'Arrivo Livigno', icon: 'arrive' });
+        timeline.push({ time: new Date(currentTime), location: destination.name, action: 'Scarico', icon: 'unload', details: '17.500 L' });
+        currentTime = addMinutes(currentTime, UNLOAD_TIME);
+        timeline.push({ time: new Date(currentTime), location: destination.name, action: 'Partenza', icon: 'depart' });
+        currentTime = addMinutes(currentTime, getRouteDuration(destination.id, parking.id));
+        timeline.push({ time: new Date(currentTime), location: parking.name, action: 'Fine', icon: 'end' });
+      }
+      return timeline;
+    };
+  }, [routeMap, locations]);
 
   // Get all dates in the schedule range
   const scheduleDates = useMemo(() => {
@@ -254,65 +338,127 @@ export function DriverTimeline({
                       const isCancelled = trip.status === 'CANCELLED';
                       const colors = isCancelled ? statusColors.CANCELLED : tripTypeColors[tripType];
                       const isSelected = trip.id === selectedTripId;
+                      const isHovered = trip.id === hoveredTripId;
 
                       const totalLiters = trip.trailers?.reduce((sum, t) => sum + t.litersLoaded, 0) || 0;
                       const hasDropOff = trip.trailers?.some(t => t.dropOffLocationId);
                       const hasPickup = trip.trailers?.some(t => t.isPickup);
                       const trailersInfo = trip.trailers?.map(t => t.trailer?.plate).filter(Boolean).join(', ');
 
+                      // Calcola timeline per tooltip
+                      const timeline = isHovered ? calculateTimeline(trip) : [];
+
                       return (
                         <div
                           key={trip.id}
-                          className={cn(
-                            "absolute top-2 bottom-2 rounded-md cursor-pointer transition-all overflow-hidden",
-                            colors.bg,
-                            colors.text,
-                            "border-2",
-                            isSelected ? "ring-2 ring-offset-2 ring-primary border-primary-foreground" : colors.border,
-                            "hover:brightness-110 hover:shadow-lg"
-                          )}
-                          style={{
-                            left: `${left}px`,
-                            width: `${width}px`,
-                          }}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onSelectTrip(trip);
-                          }}
+                          className="relative"
+                          onMouseEnter={() => setHoveredTripId(trip.id)}
+                          onMouseLeave={() => setHoveredTripId(null)}
                         >
-                          <div className="px-2 py-1 h-full flex flex-col justify-center">
-                            {/* Main info */}
-                            <div className="flex items-center gap-1 text-xs font-medium truncate">
-                              <Truck className="h-3 w-3 flex-shrink-0" />
-                              <span className="truncate">{trip.vehicle?.plate || 'N/A'}</span>
-                            </div>
-
-                            {/* Trailers and liters */}
-                            <div className="flex items-center gap-1 text-xs opacity-90 truncate">
-                              <Container className="h-3 w-3 flex-shrink-0" />
-                              <span className="truncate">
-                                {trailersInfo || 'N/A'} • {formatLiters(totalLiters)}
-                              </span>
-                            </div>
-
-                            {/* Icons for special operations */}
-                            {(hasPickup || hasDropOff) && (
-                              <div className="flex gap-1 mt-0.5">
-                                {hasPickup && (
-                                  <span className="inline-flex items-center text-xs bg-white/20 rounded px-1">
-                                    <ArrowUp className="h-3 w-3 mr-0.5" />
-                                    Pick
-                                  </span>
-                                )}
-                                {hasDropOff && (
-                                  <span className="inline-flex items-center text-xs bg-white/20 rounded px-1">
-                                    <ArrowDown className="h-3 w-3 mr-0.5" />
-                                    Drop
-                                  </span>
-                                )}
-                              </div>
+                          <div
+                            className={cn(
+                              "absolute top-2 bottom-2 rounded-md cursor-pointer transition-all overflow-hidden",
+                              colors.bg,
+                              colors.text,
+                              "border-2",
+                              isSelected ? "ring-2 ring-offset-2 ring-primary border-primary-foreground" : colors.border,
+                              "hover:brightness-110 hover:shadow-lg"
                             )}
+                            style={{
+                              left: `${left}px`,
+                              width: `${width}px`,
+                            }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onSelectTrip(trip);
+                            }}
+                          >
+                            <div className="px-2 py-1 h-full flex flex-col justify-center">
+                              {/* Main info */}
+                              <div className="flex items-center gap-1 text-xs font-medium truncate">
+                                <Truck className="h-3 w-3 flex-shrink-0" />
+                                <span className="truncate">{trip.vehicle?.plate || 'N/A'}</span>
+                              </div>
+
+                              {/* Trailers and liters */}
+                              <div className="flex items-center gap-1 text-xs opacity-90 truncate">
+                                <Container className="h-3 w-3 flex-shrink-0" />
+                                <span className="truncate">
+                                  {trailersInfo || 'N/A'} • {formatLiters(totalLiters)}
+                                </span>
+                              </div>
+
+                              {/* Icons for special operations */}
+                              {(hasPickup || hasDropOff) && (
+                                <div className="flex gap-1 mt-0.5">
+                                  {hasPickup && (
+                                    <span className="inline-flex items-center text-xs bg-white/20 rounded px-1">
+                                      <ArrowUp className="h-3 w-3 mr-0.5" />
+                                      Pick
+                                    </span>
+                                  )}
+                                  {hasDropOff && (
+                                    <span className="inline-flex items-center text-xs bg-white/20 rounded px-1">
+                                      <ArrowDown className="h-3 w-3 mr-0.5" />
+                                      Drop
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                            </div>
                           </div>
+
+                          {/* Tooltip con cronologia */}
+                          {isHovered && timeline.length > 0 && (
+                            <div
+                              className="absolute z-50 bg-popover border rounded-lg shadow-xl p-3 min-w-[280px] pointer-events-none"
+                              style={{
+                                left: `${left}px`,
+                                top: '100%',
+                                marginTop: '4px',
+                              }}
+                            >
+                              <div className="flex items-center gap-2 mb-2 pb-2 border-b">
+                                <Badge className={`${colors.bg} ${colors.text} text-xs`}>
+                                  {tripTypeColors[tripType]?.label || tripType}
+                                </Badge>
+                                <span className="text-sm font-medium">{trip.vehicle?.plate}</span>
+                                <span className="text-xs text-muted-foreground">• {trip.driver?.name}</span>
+                              </div>
+                              <div className="space-y-1.5">
+                                {timeline.map((step, idx) => (
+                                  <div key={idx} className="flex items-start gap-2 text-xs">
+                                    <span className="font-mono text-muted-foreground w-10 shrink-0">
+                                      {format(step.time, 'HH:mm')}
+                                    </span>
+                                    <div className={cn(
+                                      "w-4 h-4 rounded-full flex items-center justify-center shrink-0",
+                                      step.icon === 'start' ? 'bg-green-500 text-white' :
+                                      step.icon === 'end' ? 'bg-blue-500 text-white' :
+                                      step.icon === 'load' ? 'bg-emerald-500 text-white' :
+                                      step.icon === 'unload' ? 'bg-yellow-500 text-white' :
+                                      'bg-muted text-muted-foreground'
+                                    )}>
+                                      {step.icon === 'start' || step.icon === 'end' ? (
+                                        <MapPin className="h-2.5 w-2.5" />
+                                      ) : step.icon === 'load' || step.icon === 'unload' ? (
+                                        <Fuel className="h-2.5 w-2.5" />
+                                      ) : (
+                                        <ArrowDown className="h-2.5 w-2.5" />
+                                      )}
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                      <span className="font-medium">{step.action}</span>
+                                      <span className="text-muted-foreground ml-1">{step.location}</span>
+                                      {step.details && (
+                                        <span className="ml-1 text-[10px] bg-muted px-1 rounded">{step.details}</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       );
                     })}

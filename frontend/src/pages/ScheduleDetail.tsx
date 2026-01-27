@@ -934,6 +934,12 @@ export default function ScheduleDetail() {
               selectedTripId={selectedTrip?.id}
               isDraft={schedule.status === 'DRAFT'}
               onSlotClick={handleSlotClick}
+              routeMap={routeMap || undefined}
+              locations={{
+                source: sourceLocation,
+                parking: parkingLocation,
+                destination: destinationLocation,
+              }}
             />
           </div>
         </CardContent>
