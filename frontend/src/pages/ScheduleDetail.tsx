@@ -78,6 +78,10 @@ const getTripTypeBadge = (type: TripType) => {
       label: 'Completo',
       className: 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300',
     },
+    TRANSFER_TIRANO: {
+      label: 'Sversamento',
+      className: 'bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300',
+    },
   };
   return badges[type] || badges.FULL_ROUND;
 };
@@ -134,10 +138,11 @@ export default function ScheduleDetail() {
   }, [routes]);
 
   // Calculate trip timeline based on trip type and routes
-  // TIPI DI VIAGGIO:
-  // - SHUTTLE_LIVIGNO: Tirano -> Livigno -> Tirano (3.5h, 1 cisterna)
-  // - SUPPLY_MILANO: Tirano -> Milano -> Tirano (6h, 2 cisterne)
-  // - FULL_ROUND: Tirano -> Milano -> Tirano -> Livigno -> Tirano (8h, 1 cisterna)
+  // TIPI DI VIAGGIO (nuovo modello con cisterna integrata):
+  // - SHUTTLE_LIVIGNO: Tirano -> Livigno -> Tirano (4.5h, solo motrice - cisterna integrata)
+  // - SUPPLY_MILANO: Tirano -> Milano -> Tirano (6h, motrice + 1 rimorchio)
+  // - FULL_ROUND: Tirano -> Milano -> Tirano -> Livigno -> Tirano (9h, solo motrice)
+  // - TRANSFER_TIRANO: Sversamento rimorchio pieno -> cisterna integrata (30 min)
   const calculateTimeline = useMemo(() => {
     return (trip: Trip | null) => {
       if (!trip || !routeMap || !sourceLocation || !parkingLocation || !destinationLocation) {
@@ -170,35 +175,33 @@ export default function ScheduleDetail() {
 
       const tripType = trip.tripType || 'FULL_ROUND';
 
-      // === SHUTTLE_LIVIGNO: Tirano -> Livigno -> Tirano ===
+      // === SHUTTLE_LIVIGNO: Tirano -> Livigno -> Tirano (solo motrice, cisterna integrata) ===
       if (tripType === 'SHUTTLE_LIVIGNO') {
-        // 1. Partenza da Tirano con cisterna piena
+        // 1. Partenza da Tirano con cisterna integrata piena (senza rimorchio!)
         timeline.push({
           time: new Date(currentTime),
           location: parkingLocation.name,
-          action: 'Partenza con cisterna piena',
+          action: 'Partenza (cisterna integrata piena)',
           icon: 'start',
-          trailers: getTrailerPlates(allTrailers, true),
+          // No trailers - solo cisterna integrata
         });
 
-        // 2. Tirano -> Livigno
+        // 2. Tirano -> Livigno (2h)
         currentTime = addMinutes(currentTime, getRouteDuration(parkingLocation.id, destinationLocation.id));
         timeline.push({
           time: new Date(currentTime),
           location: destinationLocation.name,
           action: 'Arrivo a Livigno',
           icon: 'arrive',
-          trailers: getTrailerPlates(allTrailers, true),
         });
 
-        // 3. Scarico
+        // 3. Scarico cisterna integrata
         timeline.push({
           time: new Date(currentTime),
           location: destinationLocation.name,
-          action: 'Scarico carburante',
+          action: 'Scarico cisterna integrata',
           icon: 'unload',
-          details: `${totalLiters.toLocaleString()} L`,
-          trailers: getTrailerPlates(allTrailers, false),
+          details: '17.500 L',
         });
         currentTime = addMinutes(currentTime, UNLOAD_TIME);
 
@@ -208,26 +211,24 @@ export default function ScheduleDetail() {
           location: destinationLocation.name,
           action: 'Partenza verso Tirano',
           icon: 'depart',
-          trailers: getTrailerPlates(allTrailers, false),
         });
 
         currentTime = addMinutes(currentTime, getRouteDuration(destinationLocation.id, parkingLocation.id));
         timeline.push({
           time: new Date(currentTime),
           location: parkingLocation.name,
-          action: 'Fine turno',
+          action: 'Fine turno (cisterna integrata vuota)',
           icon: 'end',
-          trailers: getTrailerPlates(allTrailers, false),
         });
       }
 
-      // === SUPPLY_MILANO: Tirano -> Milano -> Tirano ===
+      // === SUPPLY_MILANO: Tirano -> Milano -> Tirano (motrice + 1 rimorchio) ===
       else if (tripType === 'SUPPLY_MILANO') {
-        // 1. Partenza da Tirano con cisterne vuote
+        // 1. Partenza da Tirano con motrice + 1 rimorchio vuoto
         timeline.push({
           time: new Date(currentTime),
           location: parkingLocation.name,
-          action: 'Partenza con cisterne vuote',
+          action: 'Partenza (motrice + rimorchio vuoto)',
           icon: 'start',
           trailers: getTrailerPlates(allTrailers, false),
         });
@@ -242,16 +243,16 @@ export default function ScheduleDetail() {
           trailers: getTrailerPlates(allTrailers, false),
         });
 
-        // 3. Carico
+        // 3. Carico cisterna integrata + rimorchio (35.000L totali)
         timeline.push({
           time: new Date(currentTime),
           location: sourceLocation.name,
-          action: 'Carico carburante',
+          action: 'Carico carburante (integrata + rimorchio)',
           icon: 'load',
-          details: `${totalLiters.toLocaleString()} L`,
+          details: '35.000 L totali',
           trailers: getTrailerPlates(allTrailers, true),
         });
-        currentTime = addMinutes(currentTime, LOAD_TIME * allTrailers.length);
+        currentTime = addMinutes(currentTime, LOAD_TIME * 2); // Carico doppio
 
         // 4. Milano -> Tirano (ritorno)
         timeline.push({
@@ -266,21 +267,57 @@ export default function ScheduleDetail() {
         timeline.push({
           time: new Date(currentTime),
           location: parkingLocation.name,
-          action: 'Fine turno - Cisterne piene a Tirano',
+          action: 'Fine - Rimorchio pieno a Tirano (da sversare)',
           icon: 'end',
           trailers: getTrailerPlates(allTrailers, true),
         });
       }
 
+      // === TRANSFER_TIRANO: Sversamento rimorchio pieno -> cisterna integrata ===
+      else if (tripType === 'TRANSFER_TIRANO') {
+        const TRANSFER_TIME = 30;
+
+        // 1. Inizio sversamento a Tirano
+        timeline.push({
+          time: new Date(currentTime),
+          location: parkingLocation.name,
+          action: 'Inizio sversamento rimorchio',
+          icon: 'start',
+          trailers: getTrailerPlates(allTrailers, true),
+        });
+
+        // 2. Sversamento in corso
+        timeline.push({
+          time: new Date(currentTime),
+          location: parkingLocation.name,
+          action: 'Sversamento in cisterna integrata',
+          icon: 'unload',
+          details: `${totalLiters.toLocaleString()} L`,
+          trailers: getTrailerPlates(allTrailers, false),
+        });
+        currentTime = addMinutes(currentTime, TRANSFER_TIME);
+
+        // 3. Fine sversamento
+        timeline.push({
+          time: new Date(currentTime),
+          location: parkingLocation.name,
+          action: 'Sversamento completato - Motrice pronta',
+          icon: 'end',
+          trailers: getTrailerPlates(allTrailers, false),
+        });
+      }
+
       // === FULL_ROUND: Tirano -> Milano -> Tirano -> Livigno -> Tirano ===
-      else {
-        // 1. Partenza da Tirano
+      // Usa solo la cisterna integrata della motrice (17.500L), senza rimorchi
+      else if (tripType === 'FULL_ROUND') {
+        const INTEGRATED_TANK_LITERS = 17500;
+
+        // 1. Partenza da Tirano (solo motrice, cisterna vuota)
         timeline.push({
           time: new Date(currentTime),
           location: parkingLocation.name,
           action: 'Partenza verso Milano',
           icon: 'start',
-          trailers: getTrailerPlates(allTrailers, false),
         });
 
         // 2. Tirano -> Milano
@@ -290,17 +327,15 @@ export default function ScheduleDetail() {
           location: sourceLocation.name,
           action: 'Arrivo a Milano',
           icon: 'arrive',
-          trailers: getTrailerPlates(allTrailers, false),
         });
 
-        // 3. Carico a Milano
+        // 3. Carico cisterna integrata a Milano
         timeline.push({
           time: new Date(currentTime),
           location: sourceLocation.name,
-          action: 'Carico carburante',
+          action: 'Carico cisterna integrata',
           icon: 'load',
-          details: `${totalLiters.toLocaleString()} L`,
-          trailers: getTrailerPlates(allTrailers, true),
+          details: `${INTEGRATED_TANK_LITERS.toLocaleString()} L`,
         });
         currentTime = addMinutes(currentTime, LOAD_TIME);
 
@@ -310,7 +345,6 @@ export default function ScheduleDetail() {
           location: sourceLocation.name,
           action: 'Partenza verso Tirano',
           icon: 'depart',
-          trailers: getTrailerPlates(allTrailers, true),
         });
 
         currentTime = addMinutes(currentTime, getRouteDuration(sourceLocation.id, parkingLocation.id));
@@ -319,7 +353,6 @@ export default function ScheduleDetail() {
           location: parkingLocation.name,
           action: 'Arrivo a Tirano',
           icon: 'arrive',
-          trailers: getTrailerPlates(allTrailers, true),
         });
 
         // 5. Tirano -> Livigno
@@ -328,7 +361,6 @@ export default function ScheduleDetail() {
           location: parkingLocation.name,
           action: 'Partenza verso Livigno',
           icon: 'depart',
-          trailers: getTrailerPlates(allTrailers, true),
         });
 
         currentTime = addMinutes(currentTime, getRouteDuration(parkingLocation.id, destinationLocation.id));
@@ -337,17 +369,15 @@ export default function ScheduleDetail() {
           location: destinationLocation.name,
           action: 'Arrivo a Livigno',
           icon: 'arrive',
-          trailers: getTrailerPlates(allTrailers, true),
         });
 
-        // 6. Scarico a Livigno
+        // 6. Scarico cisterna integrata a Livigno
         timeline.push({
           time: new Date(currentTime),
           location: destinationLocation.name,
-          action: 'Scarico carburante',
+          action: 'Scarico cisterna integrata',
           icon: 'unload',
-          details: `${totalLiters.toLocaleString()} L`,
-          trailers: getTrailerPlates(allTrailers, false),
+          details: `${INTEGRATED_TANK_LITERS.toLocaleString()} L`,
         });
         currentTime = addMinutes(currentTime, UNLOAD_TIME);
 
@@ -357,7 +387,6 @@ export default function ScheduleDetail() {
           location: destinationLocation.name,
           action: 'Partenza verso Tirano',
           icon: 'depart',
-          trailers: getTrailerPlates(allTrailers, false),
         });
 
         currentTime = addMinutes(currentTime, getRouteDuration(destinationLocation.id, parkingLocation.id));
@@ -366,7 +395,6 @@ export default function ScheduleDetail() {
           location: parkingLocation.name,
           action: 'Fine turno',
           icon: 'end',
-          trailers: getTrailerPlates(allTrailers, false),
         });
       }
 
@@ -576,8 +604,14 @@ export default function ScheduleDetail() {
   if (!schedule) return <p>Pianificazione non trovata</p>;
 
   const totalLitersPlanned = schedule.trips?.reduce(
-    (sum: number, trip: Trip) =>
-      sum + (trip.trailers?.reduce((ts: number, t: any) => ts + t.litersLoaded, 0) || 0),
+    (sum: number, trip: Trip) => {
+      // FULL_ROUND e SHUTTLE usano cisterna integrata (17.500L)
+      if (trip.tripType === 'FULL_ROUND' || trip.tripType === 'SHUTTLE_LIVIGNO') {
+        return sum + 17500;
+      }
+      // Altri tipi usano i litri dai rimorchi
+      return sum + (trip.trailers?.reduce((ts: number, t: any) => ts + t.litersLoaded, 0) || 0);
+    },
     0
   );
 
@@ -984,7 +1018,12 @@ export default function ScheduleDetail() {
                   <h4 className="text-sm font-medium text-muted-foreground mb-2">Riepilogo</h4>
                   <div className="text-sm space-y-1">
                     <p>Tipo viaggio: <Badge className={`${getTripTypeBadge(selectedTrip.tripType).className} text-xs`}>{getTripTypeBadge(selectedTrip.tripType).label}</Badge></p>
-                    <p>Totale litri: <span className="font-medium">{formatLiters(selectedTrip.trailers?.reduce((sum, t) => sum + t.litersLoaded, 0) || 0)}</span></p>
+                    <p>Totale litri: <span className="font-medium">{formatLiters(
+                      // FULL_ROUND e SHUTTLE usano cisterna integrata (17.500L), non rimorchi
+                      selectedTrip.tripType === 'FULL_ROUND' || selectedTrip.tripType === 'SHUTTLE_LIVIGNO'
+                        ? 17500
+                        : selectedTrip.trailers?.reduce((sum, t) => sum + t.litersLoaded, 0) || 0
+                    )}</span></p>
                     <p>Partenza: <span className="font-medium">{formatTime(selectedTrip.departureTime)}</span></p>
                     <p>Ritorno: <span className="font-medium">{selectedTrip.returnTime ? formatTime(selectedTrip.returnTime) : '-'}</span></p>
                   </div>
