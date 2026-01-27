@@ -667,9 +667,10 @@ export default function Schedules() {
                         const state = vehicleStates.find(s => s.vehicleId === vehicle.id);
                         return (
                           <div key={vehicle.id} className="flex items-center gap-2 p-1.5 bg-muted/50 rounded-md">
-                            <div className="w-20">
-                              <span className="font-medium text-xs">
-                                {vehicle.name || vehicle.plate}
+                            <div className="w-28">
+                              <span className="font-medium text-xs">{vehicle.name}</span>
+                              <span className="text-[10px] text-muted-foreground ml-1">
+                                ({vehicle.plate})
                               </span>
                             </div>
                             <div className="flex-1">
@@ -709,9 +710,10 @@ export default function Schedules() {
                         const state = initialStates.find(s => s.trailerId === trailer.id);
                         return (
                           <div key={trailer.id} className="flex items-center gap-2 p-1.5 bg-muted/50 rounded-md">
-                            <div className="w-16">
-                              <span className="font-medium text-xs">
-                                {trailer.name || trailer.plate}
+                            <div className="w-28">
+                              <span className="font-medium text-xs">{trailer.name}</span>
+                              <span className="text-[10px] text-muted-foreground ml-1">
+                                ({trailer.plate})
                               </span>
                             </div>
                             <div className="flex-1">
@@ -810,6 +812,12 @@ export default function Schedules() {
                     <span className="text-muted-foreground">Full Round:</span>
                     <span className="font-medium ml-2">
                       {maxCapacityResult.breakdown.tiranoDriverFullRounds}
+                    </span>
+                  </div>
+                  <div className="bg-muted/50 p-2 rounded">
+                    <span className="text-muted-foreground">Transfer:</span>
+                    <span className="font-medium ml-2">
+                      {maxCapacityResult.breakdown.transferTrips || 0}
                     </span>
                   </div>
                 </div>
