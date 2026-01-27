@@ -5,6 +5,83 @@ import { validateSingleTrip, ADR_LIMITS } from './adrValidator.service.js';
 // TIPI E COSTANTI
 // ============================================================================
 
+// Tempi fissi per operazioni (in minuti)
+const LOADING_TIME_SUPPLY = 60;      // Tempo carico a Milano (motrice 17.500L + rimorchio 17.500L = 35.000L)
+const LOADING_TIME_SINGLE = 30;      // Tempo carico a Milano (solo cisterna integrata 17.500L)
+const UNLOADING_TIME_LIVIGNO = 30;   // Tempo scarico a Livigno
+const TRANSFER_TIME_TIRANO = 30;     // Tempo sversamento rimorchio→motrice
+
+// ============================================================================
+// CALCOLO DINAMICO DURATE DA ROTTE DB
+// ============================================================================
+
+interface RouteDurations {
+  tiranoToMilano: number;   // minuti
+  milanoToTirano: number;   // minuti
+  tiranoToLivigno: number;  // minuti
+  livignoToTirano: number;  // minuti
+}
+
+interface TripDurations {
+  SHUTTLE_LIVIGNO: number;
+  SUPPLY_MILANO_FROM_TIRANO: number;
+  SUPPLY_MILANO_FROM_LIVIGNO: number;
+  FULL_ROUND: number;
+  TRANSFER_TIRANO: number;
+}
+
+async function getRouteDurations(prisma: PrismaClient): Promise<RouteDurations> {
+  const locations = await prisma.location.findMany({ where: { isActive: true } });
+  const tiranoLocation = locations.find(l => l.type === 'PARKING');
+  const milanoLocation = locations.find(l => l.type === 'SOURCE');
+  const livignoLocation = locations.find(l => l.type === 'DESTINATION');
+
+  if (!tiranoLocation || !milanoLocation || !livignoLocation) {
+    throw new Error('Missing required locations (Milano, Tirano, Livigno)');
+  }
+
+  const routes = await prisma.route.findMany({ where: { isActive: true } });
+
+  const findRoute = (fromId: string, toId: string): number => {
+    const route = routes.find(r => r.fromLocationId === fromId && r.toLocationId === toId);
+    if (!route) {
+      throw new Error(`Route not found: ${fromId} → ${toId}`);
+    }
+    return route.durationMinutes;
+  };
+
+  return {
+    tiranoToMilano: findRoute(tiranoLocation.id, milanoLocation.id),
+    milanoToTirano: findRoute(milanoLocation.id, tiranoLocation.id),
+    tiranoToLivigno: findRoute(tiranoLocation.id, livignoLocation.id),
+    livignoToTirano: findRoute(livignoLocation.id, tiranoLocation.id),
+  };
+}
+
+function calculateTripDurations(routes: RouteDurations): TripDurations {
+  // SHUTTLE: Tirano → Livigno → scarico → Tirano
+  // La motrice parte già piena (dopo TRANSFER), quindi solo scarico a Livigno
+  const shuttleDuration = routes.tiranoToLivigno + UNLOADING_TIME_LIVIGNO + routes.livignoToTirano;
+
+  // SUPPLY da Tirano: Tirano → Milano → carico (motrice + rimorchio) → Tirano
+  const supplyFromTirano = routes.tiranoToMilano + LOADING_TIME_SUPPLY + routes.milanoToTirano;
+
+  // SUPPLY da Livigno: Livigno → Tirano + SUPPLY standard + Tirano → Livigno
+  const supplyFromLivigno = routes.livignoToTirano + supplyFromTirano + routes.tiranoToLivigno;
+
+  // FULL_ROUND: Tirano → Milano → carico (solo cisterna) → Tirano → Livigno → scarico → Tirano
+  const fullRound = routes.tiranoToMilano + LOADING_TIME_SINGLE + routes.milanoToTirano +
+                    routes.tiranoToLivigno + UNLOADING_TIME_LIVIGNO + routes.livignoToTirano;
+
+  return {
+    SHUTTLE_LIVIGNO: shuttleDuration,                    // 120 + 30 + 90 = 240 min (4h)
+    SUPPLY_MILANO_FROM_TIRANO: supplyFromTirano,         // 150 + 60 + 150 = 360 min (6h)
+    SUPPLY_MILANO_FROM_LIVIGNO: supplyFromLivigno,       // 90 + 360 + 120 = 570 min (9.5h)
+    FULL_ROUND: fullRound,                               // 150 + 30 + 150 + 120 + 30 + 90 = 570 min (9.5h)
+    TRANSFER_TIRANO: TRANSFER_TIME_TIRANO,               // 30 min
+  };
+}
+
 interface OptimizationResult {
   success: boolean;
   trips: GeneratedTrip[];
@@ -47,14 +124,8 @@ interface GeneratedTrip {
 // Il trasferimento del carburante avviene tramite sversamento a Tirano.
 // ============================================================================
 
-// Durate viaggi in minuti
-const TRIP_DURATIONS = {
-  SHUTTLE_LIVIGNO: 270,              // 120 (andata) + 120 (ritorno) + 30 (scarico) = 4.5h
-  SUPPLY_MILANO_FROM_TIRANO: 360,    // 150 (andata) + 150 (ritorno) + 60 (carico) = 6h
-  SUPPLY_MILANO_FROM_LIVIGNO: 600,   // 6h + 4h (Livigno↔Tirano extra, 120min*2) = 10h
-  FULL_ROUND: 540,                   // 9h (aggiornato con tempi montagna 2h)
-  TRANSFER_TIRANO: 30,               // Sversamento rimorchio pieno → motrice vuota
-};
+// NOTA: Le durate viaggi sono ora calcolate dinamicamente dalla funzione
+// calculateTripDurations() usando i dati delle rotte nel database.
 
 // Litri consegnati a Livigno per tipo viaggio
 const TRIP_LITERS = {
@@ -126,6 +197,10 @@ export async function optimizeSchedule(
   driverAvailability?: DriverAvailabilityInput[]
 ): Promise<OptimizationResult> {
   const warnings: string[] = [];
+
+  // Calcola durate viaggi dinamicamente dalle rotte nel DB
+  const routeDurations = await getRouteDurations(prisma);
+  const TRIP_DURATIONS = calculateTripDurations(routeDurations);
 
   // Fetch schedule with initial states
   const schedule = await prisma.schedule.findUnique({
@@ -1032,11 +1107,16 @@ export async function calculateMaxCapacity(
   // Garantisce che aggiungere giorni-driver non peggiori MAI il risultato.
   // ============================================================================
 
-  const HOURS_SUPPLY = 6;
-  const HOURS_SUPPLY_LIVIGNO = 10; // Livigno→Tirano→Milano→Tirano→Livigno (richiede eccezione ADR)
-  const HOURS_TRANSFER = 0.5;
-  const HOURS_SHUTTLE = 4.5;
-  const HOURS_FULL_ROUND = 9;
+  // Calcola durate viaggi dinamicamente dalle rotte nel DB
+  const routeDurations = await getRouteDurations(prisma);
+  const tripDurations = calculateTripDurations(routeDurations);
+
+  // Converti minuti in ore per l'algoritmo
+  const HOURS_SUPPLY = tripDurations.SUPPLY_MILANO_FROM_TIRANO / 60;
+  const HOURS_SUPPLY_LIVIGNO = tripDurations.SUPPLY_MILANO_FROM_LIVIGNO / 60;
+  const HOURS_TRANSFER = tripDurations.TRANSFER_TIRANO / 60;
+  const HOURS_SHUTTLE = tripDurations.SHUTTLE_LIVIGNO / 60;
+  const HOURS_FULL_ROUND = tripDurations.FULL_ROUND / 60;
   const MAX_ADR_EXTENDED_PER_WEEK = 2; // ADR permette 10h max 2 volte/settimana
 
   const startDate = new Date(input.startDate);

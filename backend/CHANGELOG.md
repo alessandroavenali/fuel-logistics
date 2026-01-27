@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Fixed
+- **Durate viaggi calcolate dinamicamente dal DB**: le durate SHUTTLE, SUPPLY, FULL_ROUND ora vengono calcolate dalle rotte nel database invece di essere hardcoded
+  - Aggiunta funzione `getRouteDurations()` che legge le rotte dal DB
+  - Aggiunta funzione `calculateTripDurations()` che calcola le durate corrette
+  - **SHUTTLE**: corretto da 270 min (4.5h) a 240 min (4h) - era sbagliato il ritorno Livigno→Tirano (90 min, non 120)
+  - **SUPPLY_LIVIGNO**: corretto da 600 min (10h) a 570 min (9.5h)
+  - **FULL_ROUND**: corretto da 540 min (9h) a 570 min (9.5h)
+  - SUPPLY da Tirano (360 min / 6h) era già corretto
+  - Tempi carico distinti: 60 min per SUPPLY (35.000L), 30 min per FULL_ROUND (17.500L)
+
 ### Added
 - **Driver Livigno nel calcolo MAX**: implementato supporto completo per driver basati a Livigno
   - I driver Livigno operano in parallelo con i driver Tirano
