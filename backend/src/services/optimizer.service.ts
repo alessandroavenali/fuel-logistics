@@ -993,10 +993,11 @@ export interface MaxCapacityResult {
   daysWithDeliveries: number; // Giorni con almeno un autista disponibile e consegne effettive
   breakdown: {
     livignoDriverShuttles: number;
+    livignoSupplyTrips: number;  // SUPPLY da Livigno (10h, eccezione ADR max 2/settimana)
     tiranoDriverShuttles: number;
     tiranoDriverFullRounds: number;
-    supplyTrips: number;
-    transferTrips: number;  // NUOVO: sversamenti a Tirano
+    supplyTrips: number;        // SUPPLY da Tirano (6h)
+    transferTrips: number;      // Sversamenti a Tirano
   };
   dailyCapacity: number; // maxLiters / daysWithDeliveries
   constraints: string[];
@@ -1032,9 +1033,11 @@ export async function calculateMaxCapacity(
   // ============================================================================
 
   const HOURS_SUPPLY = 6;
+  const HOURS_SUPPLY_LIVIGNO = 10; // Livigno→Tirano→Milano→Tirano→Livigno (richiede eccezione ADR)
   const HOURS_TRANSFER = 0.5;
   const HOURS_SHUTTLE = 4.5;
   const HOURS_FULL_ROUND = 9;
+  const MAX_ADR_EXTENDED_PER_WEEK = 2; // ADR permette 10h max 2 volte/settimana
 
   const startDate = new Date(input.startDate);
   const endDate = new Date(input.endDate);
@@ -1067,8 +1070,9 @@ export async function calculateMaxCapacity(
   const numTrailers = trailers.length;
   const numVehicles = vehicles.filter(v => v.baseLocationId !== livignoLocation.id).length;
 
-  // Filtra driver Tirano
+  // Separa driver per base: Tirano e Livigno operano in parallelo
   const tiranoDrivers = drivers.filter(d => d.baseLocationId !== livignoLocation.id);
+  const livignoDrivers = drivers.filter(d => d.baseLocationId === livignoLocation.id);
 
   // Valida e prepara driverAvailability
   let validDriverAvailability = input.driverAvailability;
@@ -1081,13 +1085,20 @@ export async function calculateMaxCapacity(
   }
 
   // Funzione per costruire la lista di driver disponibili per ogni giorno
-  const getDriversPerDay = (avail: DriverAvailabilityInput[] | undefined): { id: string; maxHours: number }[][] => {
-    const driversPerDay: { id: string; maxHours: number }[][] = [];
+  // Restituisce sia driver Tirano che Livigno separatamente
+  const getDriversPerDay = (avail: DriverAvailabilityInput[] | undefined): {
+    tirano: { id: string; maxHours: number }[][];
+    livigno: { id: string; maxHours: number }[][];
+  } => {
+    const tiranoPerDay: { id: string; maxHours: number }[][] = [];
+    const livignoPerDay: { id: string; maxHours: number }[][] = [];
 
     for (const day of workingDays) {
       const dateKey = day.toISOString().split('T')[0];
-      const dayDrivers: { id: string; maxHours: number }[] = [];
+      const dayTiranoDrivers: { id: string; maxHours: number }[] = [];
+      const dayLivignoDrivers: { id: string; maxHours: number }[] = [];
 
+      // Driver Tirano
       for (const driver of tiranoDrivers) {
         let isAvailable = false;
 
@@ -1102,25 +1113,61 @@ export async function calculateMaxCapacity(
         }
 
         if (isAvailable) {
-          dayDrivers.push({ id: driver.id, maxHours: MAX_DAILY_HOURS });
+          dayTiranoDrivers.push({ id: driver.id, maxHours: MAX_DAILY_HOURS });
         }
       }
 
-      driversPerDay.push(dayDrivers);
+      // Driver Livigno
+      for (const driver of livignoDrivers) {
+        let isAvailable = false;
+
+        if (avail && avail.length > 0) {
+          const driverAvail = avail.find(a => a.driverId === driver.id);
+          if (driverAvail) {
+            isAvailable = driverAvail.availableDates.includes(dateKey);
+          }
+        } else {
+          // Default: solo RESIDENT disponibili
+          isAvailable = driver.type === 'RESIDENT';
+        }
+
+        if (isAvailable) {
+          dayLivignoDrivers.push({ id: driver.id, maxHours: MAX_DAILY_HOURS });
+        }
+      }
+
+      tiranoPerDay.push(dayTiranoDrivers);
+      livignoPerDay.push(dayLivignoDrivers);
     }
 
-    return driversPerDay;
+    return { tirano: tiranoPerDay, livigno: livignoPerDay };
   };
 
   // Algoritmo di ottimizzazione globale V2 con tracciamento ore driver individuali
-  const calculateGlobalMaxV2 = (driversPerDay: { id: string; maxHours: number }[][]): {
+  // Supporta driver Tirano (SUPPLY, TRANSFER, SHUTTLE, FULL_ROUND) e Livigno (SHUTTLE + SUPPLY con eccezione ADR)
+  const calculateGlobalMaxV2 = (driversData: {
+    tirano: { id: string; maxHours: number }[][];
+    livigno: { id: string; maxHours: number }[][];
+  }): {
     totalLiters: number;
-    breakdown: { supplyTrips: number; transferTrips: number; shuttleTrips: number; fullRoundTrips: number };
+    breakdown: {
+      supplyTrips: number;
+      transferTrips: number;
+      shuttleTrips: number;
+      fullRoundTrips: number;
+      livignoShuttles: number;
+      livignoSupplyTrips: number;
+    };
     daysWithDeliveries: number;
   } => {
-    const numDays = driversPerDay.length;
+    const { tirano: tiranoPerDay, livigno: livignoPerDay } = driversData;
+    const numDays = tiranoPerDay.length;
     if (numDays === 0) {
-      return { totalLiters: 0, breakdown: { supplyTrips: 0, transferTrips: 0, shuttleTrips: 0, fullRoundTrips: 0 }, daysWithDeliveries: 0 };
+      return {
+        totalLiters: 0,
+        breakdown: { supplyTrips: 0, transferTrips: 0, shuttleTrips: 0, fullRoundTrips: 0, livignoShuttles: 0, livignoSupplyTrips: 0 },
+        daysWithDeliveries: 0,
+      };
     }
 
     // Stato risorse (condivise tra tutti i driver)
@@ -1135,17 +1182,35 @@ export async function calculateMaxCapacity(
     let totalTransfer = 0;
     let totalShuttle = 0;
     let totalFullRound = 0;
+    let totalLivignoShuttle = 0;
+    let totalLivignoSupply = 0;
     let daysWithDeliveries = 0;
 
+    // Traccia eccezioni ADR usate per driver Livigno (max 2/settimana)
+    // Resettiamo ogni 5 giorni lavorativi (approssimazione settimana)
+    const livignoAdrExceptions = new Map<string, number>();
+
     for (let day = 0; day < numDays; day++) {
-      const driversToday = driversPerDay[day];
+      const tiranoDriversToday = tiranoPerDay[day];
+      const livignoDriversToday = livignoPerDay[day];
       const remainingDays = numDays - day;
       const isLastDay = remainingDays === 1;
 
-      // Stato ore driver per oggi
-      const driverHours = new Map<string, number>();
-      for (const d of driversToday) {
-        driverHours.set(d.id, d.maxHours);
+      // Reset eccezioni ADR ogni 5 giorni (nuova settimana lavorativa)
+      if (day > 0 && day % 5 === 0) {
+        livignoAdrExceptions.clear();
+      }
+
+      // Stato ore driver Tirano per oggi
+      const tiranoDriverHours = new Map<string, number>();
+      for (const d of tiranoDriversToday) {
+        tiranoDriverHours.set(d.id, d.maxHours);
+      }
+
+      // Stato ore driver Livigno per oggi
+      const livignoDriverHours = new Map<string, number>();
+      for (const d of livignoDriversToday) {
+        livignoDriverHours.set(d.id, d.maxHours);
       }
 
       let litersToday = 0;
@@ -1157,24 +1222,32 @@ export async function calculateMaxCapacity(
 
       // =====================================================================
       // FASE 1: SUPPLY (primi trip della giornata)
+      // Driver Tirano: SUPPLY standard (6h)
+      // Driver Livigno: SUPPLY con eccezione ADR (10h, max 2/settimana)
       // =====================================================================
+      let livignoSuppliesDone = 0;
+
       if (!isLastDay) {
-        // Calcola quanti SUPPLY servono basandosi sui driver di domani
-        const tomorrowDrivers = driversPerDay[day + 1] || [];
-        const tomorrowHours = tomorrowDrivers.reduce((sum, d) => sum + d.maxHours, 0);
-        const tomorrowShuttlePotential = Math.floor(tomorrowHours / HOURS_SHUTTLE);
+        // Calcola quanti SUPPLY servono basandosi sui driver di domani (Tirano + Livigno)
+        const tomorrowTiranoDrivers = tiranoPerDay[day + 1] || [];
+        const tomorrowLivignoDrivers = livignoPerDay[day + 1] || [];
+        const tomorrowTiranoHours = tomorrowTiranoDrivers.reduce((sum, d) => sum + d.maxHours, 0);
+        const tomorrowLivignoHours = tomorrowLivignoDrivers.reduce((sum, d) => sum + d.maxHours, 0);
+        // Driver Tirano: SHUTTLE standard; Driver Livigno: SHUTTLE (consumano fullTanks)
+        const tomorrowShuttlePotential = Math.floor(tomorrowTiranoHours / HOURS_SHUTTLE) +
+                                         Math.floor(tomorrowLivignoHours / HOURS_SHUTTLE);
         const currentResources = fullTanks + fullTrailers;
         const resourcesNeeded = Math.max(0, tomorrowShuttlePotential - currentResources);
         const suppliesWanted = Math.ceil(resourcesNeeded / 2);
 
-        // Fai SUPPLY con i driver che hanno tempo
-        for (const [driverId, hoursLeft] of driverHours) {
+        // Prima: fai SUPPLY con i driver Tirano che hanno tempo (più efficiente, 6h)
+        for (const [driverId, hoursLeft] of tiranoDriverHours) {
           if (suppliesDone >= suppliesWanted) break;
           if (hoursLeft < HOURS_SUPPLY) continue;
           if (emptyTrailers <= 0) break;
           if (emptyTanks <= 0) break;
 
-          driverHours.set(driverId, hoursLeft - HOURS_SUPPLY);
+          tiranoDriverHours.set(driverId, hoursLeft - HOURS_SUPPLY);
           emptyTrailers--;
           emptyTanks--;
           pendingFullTrailers++;
@@ -1182,16 +1255,47 @@ export async function calculateMaxCapacity(
           totalSupply++;
           suppliesDone++;
         }
+
+        // Poi: se servono ancora SUPPLY, usa driver Livigno con eccezione ADR (10h)
+        // L'eccezione ADR permette di estendere da 9h a 10h, max 2 volte/settimana
+        if (suppliesDone < suppliesWanted) {
+          for (const [driverId, hoursLeft] of livignoDriverHours) {
+            if (suppliesDone >= suppliesWanted) break;
+            // Il driver deve avere tutte le sue ore disponibili (giornata piena)
+            // perché SUPPLY Livigno (10h) consuma tutta la giornata + 1h eccezione
+            if (hoursLeft < MAX_DAILY_HOURS) continue;
+            if (emptyTrailers <= 0) break;
+            if (emptyTanks <= 0) break;
+
+            // Verifica limite eccezioni ADR (max 2/settimana)
+            const usedExceptions = livignoAdrExceptions.get(driverId) || 0;
+            if (usedExceptions >= MAX_ADR_EXTENDED_PER_WEEK) continue;
+
+            // Usa l'eccezione ADR: estende da 9h a 10h
+            livignoDriverHours.set(driverId, 0); // Consuma tutta la giornata
+            livignoAdrExceptions.set(driverId, usedExceptions + 1);
+            emptyTrailers--;
+            emptyTanks--;
+            pendingFullTrailers++;
+            pendingFullTanks++;
+            totalLivignoSupply++;
+            livignoSuppliesDone++;
+            suppliesDone++;
+          }
+        }
       }
 
       // Le risorse SUPPLY arrivano (disponibili per il pomeriggio)
       fullTrailers += pendingFullTrailers;
       fullTanks += pendingFullTanks;
-      emptyTanks += suppliesDone; // Le motrici tornano
+      // Le motrici tornano (solo quelle usate da driver Tirano, i driver Livigno riportano la motrice a Tirano)
+      emptyTanks += suppliesDone;
 
       // =====================================================================
-      // FASE 2: SHUTTLE e TRANSFER
+      // FASE 2: SHUTTLE e TRANSFER (driver Tirano e Livigno in parallelo)
       // =====================================================================
+      // I driver Livigno possono SOLO fare SHUTTLE (consumano fullTanks)
+      // I driver Tirano possono fare SHUTTLE, TRANSFER, FULL_ROUND
       let madeProgress = true;
       let iterations = 0;
 
@@ -1199,19 +1303,40 @@ export async function calculateMaxCapacity(
         madeProgress = false;
         iterations++;
 
-        // Trova driver con ore disponibili, ordinati per ore rimanenti (decrescente)
-        const availableDrivers = Array.from(driverHours.entries())
+        // Prima i driver Livigno: possono solo fare SHUTTLE
+        const availableLivignoDrivers = Array.from(livignoDriverHours.entries())
+          .filter(([, h]) => h >= HOURS_SHUTTLE)
+          .sort((a, b) => b[1] - a[1]);
+
+        for (const [driverId, hoursLeft] of availableLivignoDrivers) {
+          // Driver Livigno: SHUTTLE "inverso" (scende a Tirano, prende motrice piena, torna)
+          // Consuma fullTanks (cisterna piena a Tirano)
+          if (fullTanks > 0 && hoursLeft >= HOURS_SHUTTLE) {
+            fullTanks--;
+            emptyTanks++; // La motrice torna vuota a Tirano
+            livignoDriverHours.set(driverId, hoursLeft - HOURS_SHUTTLE);
+            totalLivignoShuttle++;
+            litersToday += LITERS_PER_INTEGRATED_TANK;
+            madeProgress = true;
+            break;
+          }
+        }
+
+        if (madeProgress) continue;
+
+        // Poi driver Tirano: SHUTTLE, TRANSFER, FULL_ROUND
+        const availableTiranoDrivers = Array.from(tiranoDriverHours.entries())
           .filter(([, h]) => h >= HOURS_TRANSFER)
           .sort((a, b) => b[1] - a[1]);
 
-        if (availableDrivers.length === 0) break;
+        if (availableTiranoDrivers.length === 0) break;
 
-        for (const [driverId, hoursLeft] of availableDrivers) {
+        for (const [driverId, hoursLeft] of availableTiranoDrivers) {
           // PRIORITÀ 1: SHUTTLE
           if (fullTanks > 0 && hoursLeft >= HOURS_SHUTTLE) {
             fullTanks--;
             emptyTanks++;
-            driverHours.set(driverId, hoursLeft - HOURS_SHUTTLE);
+            tiranoDriverHours.set(driverId, hoursLeft - HOURS_SHUTTLE);
             totalShuttle++;
             litersToday += LITERS_PER_INTEGRATED_TANK;
             madeProgress = true;
@@ -1224,7 +1349,7 @@ export async function calculateMaxCapacity(
             emptyTrailers++;
             emptyTanks--;
             fullTanks++;
-            driverHours.set(driverId, hoursLeft - HOURS_TRANSFER);
+            tiranoDriverHours.set(driverId, hoursLeft - HOURS_TRANSFER);
             totalTransfer++;
             madeProgress = true;
             break;
@@ -1232,7 +1357,7 @@ export async function calculateMaxCapacity(
 
           // PRIORITÀ 3: FULL_ROUND
           if (hoursLeft >= HOURS_FULL_ROUND) {
-            driverHours.set(driverId, hoursLeft - HOURS_FULL_ROUND);
+            tiranoDriverHours.set(driverId, hoursLeft - HOURS_FULL_ROUND);
             totalFullRound++;
             litersToday += LITERS_PER_INTEGRATED_TANK;
             madeProgress = true;
@@ -1252,6 +1377,8 @@ export async function calculateMaxCapacity(
         transferTrips: totalTransfer,
         shuttleTrips: totalShuttle,
         fullRoundTrips: totalFullRound,
+        livignoShuttles: totalLivignoShuttle,
+        livignoSupplyTrips: totalLivignoSupply,
       },
       daysWithDeliveries,
     };
@@ -1261,6 +1388,7 @@ export async function calculateMaxCapacity(
   // GARANZIA MONOTONICA
   // =========================================================================
   // Testiamo configurazioni con subset crescenti e prendiamo il MAX.
+  // Include driver sia Tirano che Livigno.
   // =========================================================================
 
   let bestResult = calculateGlobalMaxV2(getDriversPerDay(undefined)); // Baseline: solo RESIDENT
@@ -1272,9 +1400,10 @@ export async function calculateMaxCapacity(
       bestResult = requestedResult;
     }
 
-    // Per ogni driver ON_CALL/EMERGENCY, prova con subset crescenti
-    const residentDrivers = tiranoDrivers.filter(d => d.type === 'RESIDENT');
-    const nonResidentDrivers = tiranoDrivers.filter(d => d.type !== 'RESIDENT');
+    // Per ogni driver ON_CALL/EMERGENCY (Tirano o Livigno), prova con subset crescenti
+    const allDrivers = [...tiranoDrivers, ...livignoDrivers];
+    const residentDrivers = allDrivers.filter(d => d.type === 'RESIDENT');
+    const nonResidentDrivers = allDrivers.filter(d => d.type !== 'RESIDENT');
 
     for (const onCallDriver of nonResidentDrivers) {
       const onCallAvail = validDriverAvailability.find(a => a.driverId === onCallDriver.id);
@@ -1303,7 +1432,8 @@ export async function calculateMaxCapacity(
     workingDays: workingDays.length,
     daysWithDeliveries: bestResult.daysWithDeliveries,
     breakdown: {
-      livignoDriverShuttles: 0, // TODO: implementare per driver Livigno
+      livignoDriverShuttles: bestResult.breakdown.livignoShuttles,
+      livignoSupplyTrips: bestResult.breakdown.livignoSupplyTrips,
       tiranoDriverShuttles: bestResult.breakdown.shuttleTrips,
       tiranoDriverFullRounds: bestResult.breakdown.fullRoundTrips,
       supplyTrips: bestResult.breakdown.supplyTrips,

@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Added
+- **Driver Livigno nel calcolo MAX**: implementato supporto completo per driver basati a Livigno
+  - I driver Livigno operano in parallelo con i driver Tirano
+  - Possono fare SHUTTLE "inverso": Livigno→Tirano→Livigno (4.5h), consumando cisterne piene a Tirano
+  - Possono fare SUPPLY con eccezione ADR (10h, max 2 volte/settimana per driver)
+    - L'algoritmo decide automaticamente quando conviene usare l'eccezione
+    - Prima usa i driver Tirano (SUPPLY 6h più efficiente), poi Livigno se servono risorse
+  - NON possono fare TRANSFER (non sono fisicamente a Tirano)
+  - Max 2 SHUTTLE/giorno per driver Livigno (9h / 4.5h)
+  - Con 1 driver Livigno (Marco) + 2 driver Tirano, il MAX aumenta di ~70.000L/5 giorni
+  - Nuovi campi nel breakdown: `livignoDriverShuttles`, `livignoSupplyTrips`
+
 ### Fixed
 - **Algoritmo ottimizzazione globale V2**: riscritto completamente `calculateMaxCapacity` per risolvere il problema della non-scalabilità con driver aggiuntivi
   - L'algoritmo greedy decideva giorno per giorno e non sfruttava correttamente le ore driver
