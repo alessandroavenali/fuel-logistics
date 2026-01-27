@@ -4,6 +4,45 @@ Tutte le modifiche rilevanti al progetto Fuel Logistics Management System sarann
 
 Il formato segue [Keep a Changelog](https://keepachangelog.com/it/1.0.0/).
 
+## [1.10.0] - 2026-01-27
+
+### Corretto
+
+#### Backend - Optimizer Disponibilità Autisti
+
+- **Bug autisti ON_CALL e EMERGENCY non considerati nel calcolo MAX** (`src/services/optimizer.service.ts`)
+  - Prima: gli autisti EMERGENCY venivano sempre esclusi (hard-coded), anche se con disponibilità configurata
+  - Ora: se un autista (ON_CALL o EMERGENCY) ha disponibilità esplicitamente configurata, viene usato
+
+- **Bug driver Livigno faceva SUPPLY invece di SHUTTLE**
+  - Prima: Marco (driver Livigno) poteva sprecare tempo facendo SUPPLY (6h) invece di aspettare cisterne
+  - Ora: driver Livigno fa SOLO SHUTTLE, aspetta le cisterne piene (può fare 3 SHUTTLE/giorno = 52.500L)
+
+- **Bug driver Tirano non faceva SHUTTLE dopo SUPPLY**
+  - Prima: dopo il SUPPLY, i driver provavano a fare un altro SUPPLY invece di SHUTTLE
+  - Ora: logica corretta che considera le ore già lavorate prima di decidere SUPPLY vs SHUTTLE
+
+- **Ottimizzato bilanciamento SUPPLY paralleli**
+  - Driver che non possono fare SUPPLY+SHUTTLE (9.5h) per vincoli ADR ora fanno comunque SUPPLY
+  - Le cisterne saranno disponibili per altri driver o per il giorno successivo
+
+### Migliorato
+
+- **Logica default disponibilità autisti allineata frontend/backend**
+  - Se specifico disponibilità: usa SOLO i driver con date specificate
+  - RESIDENT non in lista: disponibili tutti i giorni (default)
+  - ON_CALL/EMERGENCY non in lista: NON disponibili (devono essere attivati esplicitamente)
+
+### Esempio Risultati
+
+| Configurazione | Litri/settimana |
+|----------------|-----------------|
+| Solo 3 RESIDENT | 280.000L |
+| +1 ON_CALL (Gio-Ven) | 332.500L (+52.500L) |
+| +1 EMERGENCY (Ven) | 350.000L (+70.000L vs base) |
+
+---
+
 ## [1.9.0] - 2026-01-27
 
 ### Aggiunto

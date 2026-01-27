@@ -297,47 +297,95 @@ export async function optimizeSchedule(
     const endOfWorkDay = new Date(currentDay);
     endOfWorkDay.setHours(22, 0, 0, 0);
 
+    // =========================================================================
+    // ALGORITMO A DUE FASI:
+    // 1. SUPPLY al mattino: tutti i driver Tirano disponibili fanno SUPPLY
+    // 2. SHUTTLE nel pomeriggio: tutti fanno SHUTTLE (Livigno ha priorità)
+    //
+    // L'obiettivo è massimizzare gli SHUTTLE paralleli usando tutte le
+    // cisterne piene disponibili.
+    // =========================================================================
+
+    // Filtra driver disponibili oggi
+    // Logica:
+    // - Se il driver è nella lista driverAvailability → usa quelle date
+    // - Se NON è nella lista:
+    //   - RESIDENT → disponibile tutti i giorni (default)
+    //   - ON_CALL → NON disponibile (deve essere esplicitamente attivato)
+    //   - EMERGENCY → NON disponibile (deve essere esplicitamente attivato)
+    //
+    // IMPORTANTE: Questo comportamento è allineato con il frontend che di default:
+    // - Seleziona tutti i giorni per RESIDENT
+    // - Non seleziona nessun giorno per ON_CALL e EMERGENCY
+    const availableDriversToday = [...drivers]
+      .filter(d => {
+        if (driverAvailability && driverAvailability.length > 0) {
+          const availability = driverAvailability.find(a => a.driverId === d.id);
+          if (availability) {
+            // Driver nella lista: usa le date specificate
+            return availability.availableDates.includes(dateKey);
+          } else {
+            // Driver NON nella lista: usa default per tipo
+            // RESIDENT = sempre disponibile, ON_CALL/EMERGENCY = mai
+            return d.type === 'RESIDENT';
+          }
+        }
+        // Nessuna lista specificata (comportamento default):
+        // Solo RESIDENT, escludi ON_CALL e EMERGENCY
+        return d.type === 'RESIDENT';
+      });
+
+    const livignoDriversToday = availableDriversToday.filter(
+      d => d.baseLocationId === livignoLocation.id
+    );
+    const tiranoDriversToday = availableDriversToday.filter(
+      d => d.baseLocationId !== livignoLocation.id
+    );
+
     // Keep scheduling until no more trips possible
     let madeProgress = true;
     let iterations = 0;
-    const maxIterations = 100; // Safety limit
+    const maxIterations = 100;
 
     while (madeProgress && remainingLiters > 0 && iterations < maxIterations) {
       madeProgress = false;
       iterations++;
 
-      // Sort drivers by next available time (earliest first)
-      const sortedDrivers = [...drivers]
-        .filter(d => d.type !== 'EMERGENCY')
-        .filter(d => {
-          // Se non c'è disponibilità specificata, usa tutti i driver
-          if (!driverAvailability || driverAvailability.length === 0) return true;
-          const availability = driverAvailability.find(a => a.driverId === d.id);
-          // Se driver non in lista, non disponibile
-          if (!availability) return false;
-          return availability.availableDates.includes(dateKey);
-        })
+      // Conta risorse disponibili ORA
+      const emptyCisternsAtTirano = tracker.cisternState.atTiranoEmpty.size;
+      const emptyCisternsAtLivigno = tracker.cisternState.atLivignoEmpty.size;
+      const totalEmptyCisterns = emptyCisternsAtTirano + emptyCisternsAtLivigno;
+
+      // Trova il prossimo driver libero
+      const sortedDrivers = availableDriversToday
         .map(d => ({ driver: d, state: driverState.get(d.id)! }))
-        .filter(({ state }) => state.nextAvailable < endOfWorkDay)
-        .sort((a, b) => a.state.nextAvailable.getTime() - b.state.nextAvailable.getTime());
+        .filter(({ state }) => state && state.nextAvailable < endOfWorkDay)
+        .sort((a, b) => {
+          // Ordina per tempo disponibile
+          const timeDiff = a.state.nextAvailable.getTime() - b.state.nextAvailable.getTime();
+          if (Math.abs(timeDiff) > 60000) return timeDiff; // >1 min di differenza
+
+          // A parità di tempo, priorità ai driver Livigno per SHUTTLE
+          const aIsLivigno = a.driver.baseLocationId === livignoLocation.id;
+          const bIsLivigno = b.driver.baseLocationId === livignoLocation.id;
+          if (aIsLivigno && !bIsLivigno) return -1;
+          if (!aIsLivigno && bIsLivigno) return 1;
+          return 0;
+        });
 
       for (const { driver, state } of sortedDrivers) {
         if (remainingLiters <= 0) break;
 
         const isLivignoDriver = driver.baseLocationId === livignoLocation.id;
-        const isTiranoDriver = !isLivignoDriver;
-
-        // Determine max hours for this driver today (9h or 10h if can extend)
-        let maxHoursToday = MAX_DAILY_HOURS; // 9h
-        if (state.extendedDaysThisWeek < 2) {
-          maxHoursToday = 10; // Can extend to 10h
-        }
-
-        // Check current cistern state at driver's next available time
-        // Cisterns from SUPPLY become available when the trip returns
         const availableTime = state.nextAvailable;
 
-        // Count cisterns that will be full at Tirano by availableTime
+        // Max ore oggi (9h o 10h con estensione)
+        let maxHoursToday = MAX_DAILY_HOURS;
+        if (state.extendedDaysThisWeek < 2) {
+          maxHoursToday = 10;
+        }
+
+        // Conta cisterne piene disponibili al momento in cui il driver è libero
         let fullCisternsAvailable = tracker.cisternState.atTiranoFull.size;
         let pendingFullCisterns: { id: string; availableAt: Date }[] = [];
 
@@ -349,59 +397,76 @@ export async function optimizeSchedule(
           }
         }
 
-        // Determine best trip type
         let tripType: TripType | null = null;
         let tripDurationMinutes: number = 0;
         let waitUntil: Date | null = null;
 
-        const emptyCisternsAtTirano = tracker.cisternState.atTiranoEmpty.size;
-        const emptyCisternsAtLivigno = tracker.cisternState.atLivignoEmpty.size;
-        const fullCisternsAtLivigno = tracker.cisternState.atLivignoFull.size;
-
         if (isLivignoDriver) {
-          // Livigno driver: SHUTTLE, oppure SUPPLY se non può fare altro
+          // =================================================================
+          // DRIVER LIVIGNO: SOLO SHUTTLE!
+          // È il più efficiente (può fare 3/giorno), non deve sprecare tempo
+          // =================================================================
           if (fullCisternsAvailable > 0) {
-            // Ci sono piene a Tirano: scende e fa SHUTTLE
             tripType = 'SHUTTLE_LIVIGNO';
             tripDurationMinutes = TRIP_DURATIONS.SHUTTLE_LIVIGNO;
-          } else if (fullCisternsAtLivigno > 0) {
-            // Ci sono piene a Livigno (caso raro): fa SHUTTLE inverso (consegna già fatta)
-            // Per ora trattiamo come se non avesse nulla da fare
-          } else if (emptyCisternsAtLivigno > 0 || emptyCisternsAtTirano >= 2) {
-            // Non ci sono piene, ma ci sono vuote: fa SUPPLY
-            // Driver Livigno scende con vuota (se a Livigno), prende altra vuota a Tirano, va a Milano
-            // Durata: Livigno->Tirano(1.75h) + Tirano->Milano->Tirano(6h) = ~7.75h
-            // Semplifichiamo: stessa durata di SUPPLY_MILANO (driver va a Tirano e poi Milano)
-            tripType = 'SUPPLY_MILANO';
-            tripDurationMinutes = TRIP_DURATIONS.SUPPLY_MILANO;
           } else if (pendingFullCisterns.length > 0) {
-            // Aspetta cisterne in arrivo
+            // Aspetta le cisterne in arrivo
             const nextCistern = pendingFullCisterns.sort((a, b) =>
               a.availableAt.getTime() - b.availableAt.getTime()
             )[0];
             waitUntil = nextCistern.availableAt;
           }
         } else {
-          // Tirano driver: SUPPLY, SHUTTLE, or FULL_ROUND
-          // Conta tutte le vuote disponibili (Tirano + Livigno)
-          const totalEmptyCisterns = emptyCisternsAtTirano + emptyCisternsAtLivigno;
+          // =================================================================
+          // DRIVER TIRANO: SUPPLY o SHUTTLE
+          //
+          // Strategia semplice e robusta:
+          // 1. Se può fare SUPPLY+SHUTTLE (ore rimanenti) e poche cisterne piene → SUPPLY
+          // 2. Se ci sono cisterne piene → SHUTTLE
+          // 3. Se ci sono SUPPLY in arrivo → aspetta
+          // =================================================================
 
-          if (fullCisternsAvailable < 2 && totalEmptyCisterns >= 2) {
-            // Need to refill - do SUPPLY (può usare vuote da Tirano o Livigno)
+          const hoursUntilEndOfDay = (endOfWorkDay.getTime() - availableTime.getTime()) / (1000 * 60 * 60);
+          // Ore che il driver può ANCORA lavorare oggi (considerando già lavorate)
+          const hoursRemaining = maxHoursToday - state.hoursWorked;
+          // Può fare SUPPLY (6h) + SHUTTLE (3.5h)?
+          const canDoSupplyAndShuttle = hoursRemaining >= 9.5 && hoursUntilEndOfDay >= 9.5;
+
+          // Quante cisterne piene (o in arrivo) abbiamo?
+          const totalFullExpected = fullCisternsAvailable + pendingFullCisterns.length;
+
+          // Strategia: fai SUPPLY al mattino se:
+          // 1. Può ancora fare SUPPLY + SHUTTLE
+          // 2. Ci sono cisterne vuote
+          // 3. Poche cisterne piene (ne servono di più)
+          const shouldDoSupply = canDoSupplyAndShuttle &&
+                                  totalEmptyCisterns >= 2 &&
+                                  totalFullExpected < 4;
+
+          // Quanti SUPPLY sono già in corso?
+          const suppliesInProgress = Math.floor(pendingFullCisterns.length / 2);
+
+          if (shouldDoSupply) {
+            // Priorità 1: SUPPLY al mattino quando può fare anche SHUTTLE dopo
             tripType = 'SUPPLY_MILANO';
             tripDurationMinutes = TRIP_DURATIONS.SUPPLY_MILANO;
           } else if (fullCisternsAvailable >= 1) {
-            // Can do SHUTTLE
+            // Priorità 2: SHUTTLE se ci sono cisterne piene
             tripType = 'SHUTTLE_LIVIGNO';
             tripDurationMinutes = TRIP_DURATIONS.SHUTTLE_LIVIGNO;
+          } else if (totalEmptyCisterns >= 2 && hoursRemaining >= 6 && hoursUntilEndOfDay >= 6 && suppliesInProgress < 2) {
+            // Priorità 3: SUPPLY anche se non c'è tempo per SHUTTLE dopo
+            // MA solo se non ci sono già 2 SUPPLY in corso (evita accumulo eccessivo)
+            tripType = 'SUPPLY_MILANO';
+            tripDurationMinutes = TRIP_DURATIONS.SUPPLY_MILANO;
           } else if (pendingFullCisterns.length > 0) {
-            // Wait for SUPPLY to return
+            // Priorità 4: Aspetta SUPPLY in arrivo
             const nextCistern = pendingFullCisterns.sort((a, b) =>
               a.availableAt.getTime() - b.availableAt.getTime()
             )[0];
             waitUntil = nextCistern.availableAt;
           } else if (totalEmptyCisterns > 0 || tracker.cisternState.atMilano.size > 0) {
-            // Fallback: FULL_ROUND
+            // Ultimo fallback: FULL_ROUND
             tripType = 'FULL_ROUND';
             tripDurationMinutes = TRIP_DURATIONS.FULL_ROUND;
           }
