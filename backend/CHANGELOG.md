@@ -3,6 +3,26 @@
 ## [Unreleased]
 
 ### Fixed
+- **Algoritmo ottimizzazione globale V2**: riscritto completamente `calculateMaxCapacity` per risolvere il problema della non-scalabilità con driver aggiuntivi
+  - L'algoritmo greedy decideva giorno per giorno e non sfruttava correttamente le ore driver
+  - Ora traccia le ore per ogni driver individualmente (requisito ADR)
+  - I driver possono scambiarsi di posto quando si incontrano (risorse condivise, come nella realtà)
+  - Separa le fasi: SUPPLY mattina → risorse disponibili → SHUTTLE/TRANSFER pomeriggio
+  - Garantisce crescita monotona: aggiungere giorni-driver non peggiora MAI il risultato
+  - Giovanni 4gg ora produce 157.500L (prima 140.000L con algoritmo errato)
+
+### Changed
+- **Modello risorse più realistico**: le motrici e rimorchi sono condivisi tra driver, ma ogni driver ha il suo budget ore ADR individuale
+- **Fasi di scheduling**: i SUPPLY vengono fatti per primi (mattina), le risorse create diventano disponibili per SHUTTLE nel pomeriggio dello stesso giorno
+
+### Added
+- `optimizer-global-v2.service.ts`: versione standalone dell'algoritmo per test e debug
+
+---
+
+## [Previous - Pre-Global-Optimizer]
+
+### Fixed
 - **Driver Livigno non usavano motrice locale**: i driver di Livigno ora cercano prima motrici nella loro stessa location per SUPPLY, permettendo di usare la Motrice Alfa (base Livigno) che prima restava inutilizzata
 - **Aggiungere driver opzionali poteva diminuire MAX**: corretto bug dove aggiungere giorni a driver ON_CALL/EMERGENCY causava un effetto cascata negativo (troppi SUPPLY → troppi TRANSFER → meno SHUTTLE)
 - **Garantita monotonia del calcolo MAX**: `calculateMaxCapacity` ora confronta il risultato con tutti i driver vs solo RESIDENT (baseline) e usa automaticamente il migliore, garantendo che aggiungere driver non peggiori mai il risultato

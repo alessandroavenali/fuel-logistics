@@ -394,11 +394,18 @@ export async function optimizeSchedule(
       const fullTrailersAtTirano = tracker.trailerState.atTiranoFull.size;
 
       // Trova il prossimo driver libero
+      // IMPORTANTE: ordina per dare priorità ai RESIDENT, poi per tempo disponibile
+      // Questo evita che driver ON_CALL/EMERGENCY "rubino" trip ai RESIDENT
       const sortedDrivers = availableDriversToday
         .map(d => ({ driver: d, state: driverState.get(d.id)! }))
         .filter(({ state }) => state && state.nextAvailable < endOfWorkDay)
         .sort((a, b) => {
-          // Ordina per tempo disponibile
+          // Prima ordina per tipo: RESIDENT > ON_CALL > EMERGENCY
+          const typePriority: Record<string, number> = { RESIDENT: 0, ON_CALL: 1, EMERGENCY: 2 };
+          const typeDiff = typePriority[a.driver.type] - typePriority[b.driver.type];
+          if (typeDiff !== 0) return typeDiff;
+
+          // Poi per tempo disponibile
           const timeDiff = a.state.nextAvailable.getTime() - b.state.nextAvailable.getTime();
           if (Math.abs(timeDiff) > 60000) return timeDiff; // >1 min di differenza
 
@@ -414,12 +421,7 @@ export async function optimizeSchedule(
         if (remainingLiters <= 0) break;
 
         const availableTime = state.nextAvailable;
-
-        // Max ore oggi (9h o 10h con estensione)
-        let maxHoursToday = MAX_DAILY_HOURS;
-        if (state.extendedDaysThisWeek < 2) {
-          maxHoursToday = 10;
-        }
+        const isLivignoDriver = driver.baseLocationId === livignoLocation.id;
 
         // Conta rimorchi pieni disponibili (inclusi quelli in arrivo)
         let fullTrailersAvailable = tracker.trailerState.atTiranoFull.size;
@@ -460,19 +462,13 @@ export async function optimizeSchedule(
         let tripDurationMinutes: number = 0;
         let waitUntil: Date | null = null;
 
-        // =================================================================
-        // NUOVO ALGORITMO CON CISTERNE INTEGRATE
-        //
-        // PRIORITÀ ASSEGNAZIONE:
-        // 1. Se motrice piena a Tirano → SHUTTLE_LIVIGNO (sale solo la motrice)
-        // 2. Se motrice vuota + rimorchio pieno a Tirano → TRANSFER_TIRANO (30 min)
-        // 3. Se rimorchi vuoti a Tirano + motrice disponibile → SUPPLY_MILANO
-        // 4. Fallback → FULL_ROUND o attesa
-        //
-        // NOTA: I rimorchi pieni NON salgono MAI a Livigno!
-        // =================================================================
+        // Max ore oggi (9h o 10h con estensione)
+        // Usa sempre estensione se disponibile (max 2 per settimana)
+        let maxHoursToday = MAX_DAILY_HOURS;
+        if (state.extendedDaysThisWeek < 2) {
+          maxHoursToday = 10;
+        }
 
-        const isLivignoDriver = driver.baseLocationId === livignoLocation.id;
         const supplyDuration = isLivignoDriver
           ? TRIP_DURATIONS.SUPPLY_MILANO_FROM_LIVIGNO
           : TRIP_DURATIONS.SUPPLY_MILANO_FROM_TIRANO;
@@ -491,40 +487,58 @@ export async function optimizeSchedule(
         const pendingFullTrailerCount = fullTrailersAvailable + pendingFullTrailers.length;
 
         // Calcola quante motrici vuote saranno disponibili per TRANSFER
-        // (serve per bilanciare SUPPLY vs capacità di smaltire i rimorchi pieni)
         const vehiclesAvailableForTransfer = vehiclesWithEmptyTankAtTirano +
           pendingFullTanks.filter(p => p.availableAt <= endOfWorkDay).length;
 
-        // PRIORITÀ 1: SHUTTLE se c'è una motrice con cisterna piena a Tirano
+        // Calcola il "bilancio risorse": quante motrici piene abbiamo/avremo
+        // vs quanti SHUTTLE possiamo fare oggi
+        const totalMotriciPiene = vehiclesWithFullTankAtTirano + pendingFullTanks.length;
+        const totalRimorchiPieni = fullTrailersAvailable + pendingFullTrailers.length;
+
+        // Stima degli SHUTTLE possibili oggi (basata su driver disponibili e tempo)
+        const potentialShuttlesToday = Math.floor(
+          availableDriversToday.reduce((sum, d) => {
+            const dState = driverState.get(d.id);
+            if (!dState) return sum;
+            const dHoursLeft = maxHoursToday - dState.hoursWorked;
+            return sum + Math.floor(dHoursLeft / shuttleHours);
+          }, 0)
+        );
+
+        // Calcola quanti giorni rimangono (incluso oggi)
+        const currentDayIndex = workingDays.findIndex(d =>
+          d.toISOString().split('T')[0] === dateKey
+        );
+        const remainingDays = workingDays.length - currentDayIndex;
+
+        // Se siamo nell'ultimo giorno, priorità assoluta a SHUTTLE (smaltisci tutto)
+        // Altrimenti, bilancia: assicurati di avere risorse per i giorni successivi
+        const isLastDay = remainingDays <= 1;
+
+        // Calcola se abbiamo abbastanza risorse per i prossimi giorni
+        // Regola: vogliamo almeno 1 rimorchio pieno per ogni giorno rimanente
+        const minResourcesNeeded = isLastDay ? 0 : Math.min(remainingDays - 1, trailers.length / 2);
+        const currentResources = totalRimorchiPieni + pendingFullTrailerCount;
+        const needMoreSupply = currentResources < minResourcesNeeded && emptyTrailersAtTirano > 0;
+
+        // ALGORITMO GREEDY SEMPLICE:
+        // Priorità: SHUTTLE > TRANSFER > SUPPLY > FULL_ROUND
+        // Tutti i driver seguono la stessa logica
+
         if (vehiclesWithFullTankAtTirano >= 1 && canDoShuttle) {
           tripType = 'SHUTTLE_LIVIGNO';
           tripDurationMinutes = TRIP_DURATIONS.SHUTTLE_LIVIGNO;
         }
-        // PRIORITÀ 2: TRANSFER se c'è motrice vuota + rimorchio pieno a Tirano
         else if (vehiclesWithEmptyTankAtTirano >= 1 && fullTrailersAvailable >= 1 && canDoTransfer) {
           tripType = 'TRANSFER_TIRANO';
           tripDurationMinutes = TRIP_DURATIONS.TRANSFER_TIRANO;
         }
-        // PRIORITÀ 3: SUPPLY se ci sono rimorchi vuoti a Tirano
-        // MA: non fare SUPPLY se ci sono già troppi rimorchi pieni in attesa
-        // (altrimenti si crea un backlog che non può essere smaltito nei giorni successivi)
         else if (emptyTrailersAtTirano >= 1 && canDoSupply) {
-          // Limita SUPPLY basandosi sulla capacità minima di smaltimento
-          // I rimorchi pieni richiedono TRANSFER + SHUTTLE (5h totali) per essere smaltiti
-          // Usa un limite conservativo basato sul numero di VEICOLI (non driver)
-          // perché i veicoli sono il vero collo di bottiglia per SHUTTLE
-          //
-          // Regola: massimo (numero veicoli - 1) rimorchi pieni pendenti
-          // Questo lascia sempre almeno 1 veicolo "libero" per continuare il ciclo
-          const maxPendingFullTrailers = Math.max(2, vehicles.length - 1);
-
-          if (pendingFullTrailerCount < maxPendingFullTrailers) {
-            tripType = 'SUPPLY_MILANO';
-            tripDurationMinutes = supplyDuration;
-          }
+          tripType = 'SUPPLY_MILANO';
+          tripDurationMinutes = supplyDuration;
         }
-        // PRIORITÀ 4: Aspetta se ci sono risorse in arrivo
         else if (pendingFullTanks.length > 0 || pendingFullTrailers.length > 0) {
+          // Aspetta risorse in arrivo
           const nextAvailable = [
             ...pendingFullTanks.map(p => p.availableAt),
             ...pendingFullTrailers.map(p => p.availableAt),
@@ -533,7 +547,6 @@ export async function optimizeSchedule(
             waitUntil = nextAvailable;
           }
         }
-        // PRIORITÀ 5: FULL_ROUND (fallback)
         else if (canDoFullRound && (emptyTrailersAtTirano > 0 || tracker.trailerState.atMilano.size > 0)) {
           tripType = 'FULL_ROUND';
           tripDurationMinutes = TRIP_DURATIONS.FULL_ROUND;
@@ -1010,158 +1023,295 @@ export async function calculateMaxCapacity(
   prisma: PrismaClient,
   input: CalculateMaxInput
 ): Promise<MaxCapacityResult> {
-  // Crea uno schedule temporaneo per usare l'optimizer
+  // ============================================================================
+  // ALGORITMO DI OTTIMIZZAZIONE GLOBALE V2
+  // ============================================================================
+  // Traccia le ore per ogni driver individualmente (requisito ADR).
+  // I driver possono scambiarsi di posto quando si incontrano (risorse condivise).
+  // Garantisce che aggiungere giorni-driver non peggiori MAI il risultato.
+  // ============================================================================
+
+  const HOURS_SUPPLY = 6;
+  const HOURS_TRANSFER = 0.5;
+  const HOURS_SHUTTLE = 4.5;
+  const HOURS_FULL_ROUND = 9;
+
   const startDate = new Date(input.startDate);
   const endDate = new Date(input.endDate);
+  const workingDays = getWorkingDays(startDate, endDate, input.includeWeekend ?? false);
+  const allDates = workingDays.map(d => d.toISOString().split('T')[0]);
 
-  // Valida initialStates se presenti
-  let validInitialStates: typeof input.initialStates = undefined;
-  if (input.initialStates && input.initialStates.length > 0) {
-    const trailerIds = await prisma.trailer.findMany({ select: { id: true } });
-    const locationIds = await prisma.location.findMany({ select: { id: true } });
-    const validTrailerIds = new Set(trailerIds.map(t => t.id));
-    const validLocationIds = new Set(locationIds.map(l => l.id));
+  // Carica risorse dal DB
+  const [drivers, vehicles, trailers, locations] = await Promise.all([
+    prisma.driver.findMany({
+      where: { isActive: true },
+      include: { baseLocation: true },
+    }),
+    prisma.vehicle.findMany({
+      where: { isActive: true },
+      include: { baseLocation: true },
+    }),
+    prisma.trailer.findMany({
+      where: { isActive: true },
+    }),
+    prisma.location.findMany({ where: { isActive: true } }),
+  ]);
 
-    validInitialStates = input.initialStates.filter(s =>
-      validTrailerIds.has(s.trailerId) && validLocationIds.has(s.locationId)
-    );
-    if (validInitialStates.length === 0) validInitialStates = undefined;
+  const livignoLocation = locations.find(l => l.type === 'DESTINATION');
+  const tiranoLocation = locations.find(l => l.type === 'PARKING');
+
+  if (!livignoLocation || !tiranoLocation) {
+    throw new Error('Missing required locations (Livigno, Tirano)');
   }
 
-  // Valida driverAvailability se presente
-  let validDriverAvailability: typeof input.driverAvailability = undefined;
-  if (input.driverAvailability && input.driverAvailability.length > 0) {
-    const driverIds = await prisma.driver.findMany({ select: { id: true }, where: { isActive: true } });
-    const validDriverIds = new Set(driverIds.map(d => d.id));
+  const numTrailers = trailers.length;
+  const numVehicles = vehicles.filter(v => v.baseLocationId !== livignoLocation.id).length;
 
-    validDriverAvailability = input.driverAvailability.filter(a =>
+  // Filtra driver Tirano
+  const tiranoDrivers = drivers.filter(d => d.baseLocationId !== livignoLocation.id);
+
+  // Valida e prepara driverAvailability
+  let validDriverAvailability = input.driverAvailability;
+  if (validDriverAvailability && validDriverAvailability.length > 0) {
+    const validDriverIds = new Set(drivers.map(d => d.id));
+    validDriverAvailability = validDriverAvailability.filter(a =>
       validDriverIds.has(a.driverId) && a.availableDates.length > 0
     );
     if (validDriverAvailability.length === 0) validDriverAvailability = undefined;
   }
 
-  // Crea schedule fittizio
-  const tempSchedule = await prisma.schedule.create({
-    data: {
-      name: '_MAX_CALC_TEMP_',
-      startDate,
-      endDate,
-      requiredLiters: 999999999, // Massimo possibile
-      status: 'DRAFT',
-      includeWeekend: input.includeWeekend ?? false,
-      initialStates: validInitialStates ? {
-        create: validInitialStates.map(s => ({
-          trailerId: s.trailerId,
-          locationId: s.locationId,
-          isFull: s.isFull,
-        })),
-      } : undefined,
-    },
-    include: { initialStates: true },
-  });
+  // Funzione per costruire la lista di driver disponibili per ogni giorno
+  const getDriversPerDay = (avail: DriverAvailabilityInput[] | undefined): { id: string; maxHours: number }[][] => {
+    const driversPerDay: { id: string; maxHours: number }[][] = [];
 
-  try {
-    // Per evitare che aggiungere driver opzionali peggiori il risultato,
-    // calcoliamo anche il baseline (solo driver RESIDENT con tutti i giorni)
-    // e prendiamo il MAX tra le due soluzioni
-    const allDrivers = await prisma.driver.findMany({ where: { isActive: true } });
-    const residentDrivers = allDrivers.filter(d => d.type === 'RESIDENT');
-    const workingDaysForBaseline = getWorkingDays(startDate, endDate, input.includeWeekend ?? false);
-    const baselineDates = workingDaysForBaseline.map(d => d.toISOString().split('T')[0]);
+    for (const day of workingDays) {
+      const dateKey = day.toISOString().split('T')[0];
+      const dayDrivers: { id: string; maxHours: number }[] = [];
 
-    // Baseline: solo RESIDENT con tutti i giorni
-    const baselineAvailability = residentDrivers.map(d => ({
-      driverId: d.id,
-      availableDates: baselineDates,
-    }));
+      for (const driver of tiranoDrivers) {
+        let isAvailable = false;
 
-    // Calcola entrambi i risultati
-    const resultWithAll = await optimizeSchedule(prisma, tempSchedule.id, validDriverAvailability);
+        if (avail && avail.length > 0) {
+          const driverAvail = avail.find(a => a.driverId === driver.id);
+          if (driverAvail) {
+            isAvailable = driverAvail.availableDates.includes(dateKey);
+          }
+        } else {
+          // Default: solo RESIDENT disponibili
+          isAvailable = driver.type === 'RESIDENT';
+        }
 
-    // Cancella i trip per ricalcolare il baseline
-    await prisma.tripTrailer.deleteMany({ where: { trip: { scheduleId: tempSchedule.id } } });
-    await prisma.trip.deleteMany({ where: { scheduleId: tempSchedule.id } });
+        if (isAvailable) {
+          dayDrivers.push({ id: driver.id, maxHours: MAX_DAILY_HOURS });
+        }
+      }
 
-    const resultBaseline = await optimizeSchedule(prisma, tempSchedule.id, baselineAvailability);
-
-    // Calcola litri per entrambi
-    const litersWithAll = resultWithAll.trips.filter(t =>
-      t.tripType === 'SHUTTLE_LIVIGNO' || t.tripType === 'FULL_ROUND'
-    ).length * LITERS_PER_INTEGRATED_TANK;
-
-    const litersBaseline = resultBaseline.trips.filter(t =>
-      t.tripType === 'SHUTTLE_LIVIGNO' || t.tripType === 'FULL_ROUND'
-    ).length * LITERS_PER_INTEGRATED_TANK;
-
-    // Usa il risultato migliore
-    const result = litersWithAll >= litersBaseline ? resultWithAll : resultBaseline;
-    const usedBaseline = litersWithAll < litersBaseline;
-
-    // Conta solo i litri effettivamente consegnati (SHUTTLE e FULL_ROUND)
-    const shuttleTrips = result.trips.filter(t => t.tripType === 'SHUTTLE_LIVIGNO');
-    const supplyTrips = result.trips.filter(t => t.tripType === 'SUPPLY_MILANO');
-    const fullRoundTrips = result.trips.filter(t => t.tripType === 'FULL_ROUND');
-    const transferTrips = result.trips.filter(t => t.tripType === 'TRANSFER_TIRANO');
-
-    // SHUTTLE e FULL_ROUND consegnano a Livigno (cisterna integrata)
-    const maxLiters = shuttleTrips.length * LITERS_PER_INTEGRATED_TANK +
-                      fullRoundTrips.length * LITERS_PER_INTEGRATED_TANK;
-
-    const workingDays = getWorkingDays(startDate, endDate, input.includeWeekend);
-    const numWorkingDays = workingDays.length;
-
-    // Calcola i giorni con almeno un trip (giorni effettivamente lavorati)
-    const deliveryTrips = [...shuttleTrips, ...fullRoundTrips];
-    const daysWithTrips = new Set(
-      deliveryTrips.map(t => new Date(t.date).toISOString().split('T')[0])
-    );
-    const numDaysWithDeliveries = daysWithTrips.size;
-
-    const constraints: string[] = [];
-    if (result.warnings.length > 0) {
-      constraints.push(...result.warnings);
+      driversPerDay.push(dayDrivers);
     }
 
-    // Conta shuttle per driver Livigno vs Tirano
-    const locations = await prisma.location.findMany({ where: { isActive: true } });
-    const drivers = await prisma.driver.findMany({
-      where: { isActive: true },
-      include: { baseLocation: true },
-    });
-    const livignoLocation = locations.find(l => l.type === 'DESTINATION');
+    return driversPerDay;
+  };
 
-    let livignoShuttles = 0;
-    let tiranoShuttles = 0;
-    for (const trip of shuttleTrips) {
-      const driver = drivers.find(d => d.id === trip.driverId);
-      if (driver?.baseLocationId === livignoLocation?.id) {
-        livignoShuttles++;
-      } else {
-        tiranoShuttles++;
+  // Algoritmo di ottimizzazione globale V2 con tracciamento ore driver individuali
+  const calculateGlobalMaxV2 = (driversPerDay: { id: string; maxHours: number }[][]): {
+    totalLiters: number;
+    breakdown: { supplyTrips: number; transferTrips: number; shuttleTrips: number; fullRoundTrips: number };
+    daysWithDeliveries: number;
+  } => {
+    const numDays = driversPerDay.length;
+    if (numDays === 0) {
+      return { totalLiters: 0, breakdown: { supplyTrips: 0, transferTrips: 0, shuttleTrips: 0, fullRoundTrips: 0 }, daysWithDeliveries: 0 };
+    }
+
+    // Stato risorse (condivise tra tutti i driver)
+    let fullTrailers = 0;
+    let emptyTrailers = numTrailers;
+    let fullTanks = 0;
+    let emptyTanks = numVehicles;
+
+    // Contatori totali
+    let totalLiters = 0;
+    let totalSupply = 0;
+    let totalTransfer = 0;
+    let totalShuttle = 0;
+    let totalFullRound = 0;
+    let daysWithDeliveries = 0;
+
+    for (let day = 0; day < numDays; day++) {
+      const driversToday = driversPerDay[day];
+      const remainingDays = numDays - day;
+      const isLastDay = remainingDays === 1;
+
+      // Stato ore driver per oggi
+      const driverHours = new Map<string, number>();
+      for (const d of driversToday) {
+        driverHours.set(d.id, d.maxHours);
       }
+
+      let litersToday = 0;
+
+      // Risorse che arriveranno dopo i SUPPLY
+      let pendingFullTrailers = 0;
+      let pendingFullTanks = 0;
+      let suppliesDone = 0;
+
+      // =====================================================================
+      // FASE 1: SUPPLY (primi trip della giornata)
+      // =====================================================================
+      if (!isLastDay) {
+        // Calcola quanti SUPPLY servono basandosi sui driver di domani
+        const tomorrowDrivers = driversPerDay[day + 1] || [];
+        const tomorrowHours = tomorrowDrivers.reduce((sum, d) => sum + d.maxHours, 0);
+        const tomorrowShuttlePotential = Math.floor(tomorrowHours / HOURS_SHUTTLE);
+        const currentResources = fullTanks + fullTrailers;
+        const resourcesNeeded = Math.max(0, tomorrowShuttlePotential - currentResources);
+        const suppliesWanted = Math.ceil(resourcesNeeded / 2);
+
+        // Fai SUPPLY con i driver che hanno tempo
+        for (const [driverId, hoursLeft] of driverHours) {
+          if (suppliesDone >= suppliesWanted) break;
+          if (hoursLeft < HOURS_SUPPLY) continue;
+          if (emptyTrailers <= 0) break;
+          if (emptyTanks <= 0) break;
+
+          driverHours.set(driverId, hoursLeft - HOURS_SUPPLY);
+          emptyTrailers--;
+          emptyTanks--;
+          pendingFullTrailers++;
+          pendingFullTanks++;
+          totalSupply++;
+          suppliesDone++;
+        }
+      }
+
+      // Le risorse SUPPLY arrivano (disponibili per il pomeriggio)
+      fullTrailers += pendingFullTrailers;
+      fullTanks += pendingFullTanks;
+      emptyTanks += suppliesDone; // Le motrici tornano
+
+      // =====================================================================
+      // FASE 2: SHUTTLE e TRANSFER
+      // =====================================================================
+      let madeProgress = true;
+      let iterations = 0;
+
+      while (madeProgress && iterations < 100) {
+        madeProgress = false;
+        iterations++;
+
+        // Trova driver con ore disponibili, ordinati per ore rimanenti (decrescente)
+        const availableDrivers = Array.from(driverHours.entries())
+          .filter(([, h]) => h >= HOURS_TRANSFER)
+          .sort((a, b) => b[1] - a[1]);
+
+        if (availableDrivers.length === 0) break;
+
+        for (const [driverId, hoursLeft] of availableDrivers) {
+          // PRIORITÀ 1: SHUTTLE
+          if (fullTanks > 0 && hoursLeft >= HOURS_SHUTTLE) {
+            fullTanks--;
+            emptyTanks++;
+            driverHours.set(driverId, hoursLeft - HOURS_SHUTTLE);
+            totalShuttle++;
+            litersToday += LITERS_PER_INTEGRATED_TANK;
+            madeProgress = true;
+            break;
+          }
+
+          // PRIORITÀ 2: TRANSFER
+          if (fullTrailers > 0 && emptyTanks > 0 && hoursLeft >= HOURS_TRANSFER) {
+            fullTrailers--;
+            emptyTrailers++;
+            emptyTanks--;
+            fullTanks++;
+            driverHours.set(driverId, hoursLeft - HOURS_TRANSFER);
+            totalTransfer++;
+            madeProgress = true;
+            break;
+          }
+
+          // PRIORITÀ 3: FULL_ROUND
+          if (hoursLeft >= HOURS_FULL_ROUND) {
+            driverHours.set(driverId, hoursLeft - HOURS_FULL_ROUND);
+            totalFullRound++;
+            litersToday += LITERS_PER_INTEGRATED_TANK;
+            madeProgress = true;
+            break;
+          }
+        }
+      }
+
+      totalLiters += litersToday;
+      if (litersToday > 0) daysWithDeliveries++;
     }
 
     return {
-      maxLiters,
-      workingDays: numWorkingDays,
-      daysWithDeliveries: numDaysWithDeliveries,
+      totalLiters,
       breakdown: {
-        livignoDriverShuttles: livignoShuttles,
-        tiranoDriverShuttles: tiranoShuttles,
-        tiranoDriverFullRounds: fullRoundTrips.length,
-        supplyTrips: supplyTrips.length,
-        transferTrips: transferTrips.length,
+        supplyTrips: totalSupply,
+        transferTrips: totalTransfer,
+        shuttleTrips: totalShuttle,
+        fullRoundTrips: totalFullRound,
       },
-      dailyCapacity: numDaysWithDeliveries > 0 ? Math.floor(maxLiters / numDaysWithDeliveries) : 0,
-      constraints,
+      daysWithDeliveries,
     };
-  } finally {
-    // Elimina schedule temporaneo e tutti i trip generati
-    await prisma.tripTrailer.deleteMany({
-      where: { trip: { scheduleId: tempSchedule.id } },
-    });
-    await prisma.trip.deleteMany({ where: { scheduleId: tempSchedule.id } });
-    await prisma.scheduleInitialState.deleteMany({ where: { scheduleId: tempSchedule.id } });
-    await prisma.schedule.delete({ where: { id: tempSchedule.id } });
+  };
+
+  // =========================================================================
+  // GARANZIA MONOTONICA
+  // =========================================================================
+  // Testiamo configurazioni con subset crescenti e prendiamo il MAX.
+  // =========================================================================
+
+  let bestResult = calculateGlobalMaxV2(getDriversPerDay(undefined)); // Baseline: solo RESIDENT
+
+  if (validDriverAvailability && validDriverAvailability.length > 0) {
+    // Configurazione richiesta
+    const requestedResult = calculateGlobalMaxV2(getDriversPerDay(validDriverAvailability));
+    if (requestedResult.totalLiters > bestResult.totalLiters) {
+      bestResult = requestedResult;
+    }
+
+    // Per ogni driver ON_CALL/EMERGENCY, prova con subset crescenti
+    const residentDrivers = tiranoDrivers.filter(d => d.type === 'RESIDENT');
+    const nonResidentDrivers = tiranoDrivers.filter(d => d.type !== 'RESIDENT');
+
+    for (const onCallDriver of nonResidentDrivers) {
+      const onCallAvail = validDriverAvailability.find(a => a.driverId === onCallDriver.id);
+      if (!onCallAvail || onCallAvail.availableDates.length === 0) continue;
+
+      const sortedDates = onCallAvail.availableDates.sort();
+
+      for (let numOnCallDays = 1; numOnCallDays <= sortedDates.length; numOnCallDays++) {
+        const subsetDates = sortedDates.slice(0, numOnCallDays);
+
+        const testAvail: DriverAvailabilityInput[] = [
+          ...residentDrivers.map(d => ({ driverId: d.id, availableDates: allDates })),
+          { driverId: onCallDriver.id, availableDates: subsetDates },
+        ];
+
+        const testResult = calculateGlobalMaxV2(getDriversPerDay(testAvail));
+        if (testResult.totalLiters > bestResult.totalLiters) {
+          bestResult = testResult;
+        }
+      }
+    }
   }
+
+  return {
+    maxLiters: bestResult.totalLiters,
+    workingDays: workingDays.length,
+    daysWithDeliveries: bestResult.daysWithDeliveries,
+    breakdown: {
+      livignoDriverShuttles: 0, // TODO: implementare per driver Livigno
+      tiranoDriverShuttles: bestResult.breakdown.shuttleTrips,
+      tiranoDriverFullRounds: bestResult.breakdown.fullRoundTrips,
+      supplyTrips: bestResult.breakdown.supplyTrips,
+      transferTrips: bestResult.breakdown.transferTrips,
+    },
+    dailyCapacity: bestResult.daysWithDeliveries > 0
+      ? Math.floor(bestResult.totalLiters / bestResult.daysWithDeliveries)
+      : 0,
+    constraints: [],
+  };
 }
