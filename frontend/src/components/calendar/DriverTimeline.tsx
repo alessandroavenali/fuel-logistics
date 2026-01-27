@@ -5,7 +5,7 @@ import { ChevronLeft, ChevronRight, Truck, Container, ArrowUp, ArrowDown } from 
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
-import type { Trip, TripStatus, DriverType } from '@/types';
+import type { Trip, TripStatus, TripType, DriverType } from '@/types';
 
 interface TimelineDriver {
   id: string;
@@ -35,6 +35,14 @@ const statusColors: Record<TripStatus, { bg: string; border: string; text: strin
   IN_PROGRESS: { bg: 'bg-purple-500', border: 'border-purple-600', text: 'text-white' },
   COMPLETED: { bg: 'bg-green-500', border: 'border-green-600', text: 'text-white' },
   CANCELLED: { bg: 'bg-red-400', border: 'border-red-500', text: 'text-white line-through opacity-60' },
+};
+
+// Colori per tipo di viaggio
+const tripTypeColors: Record<TripType, { bg: string; border: string; text: string; label: string }> = {
+  SHUTTLE_LIVIGNO: { bg: 'bg-green-500', border: 'border-green-600', text: 'text-white', label: 'Shuttle' },
+  SUPPLY_MILANO: { bg: 'bg-blue-500', border: 'border-blue-600', text: 'text-white', label: 'Supply' },
+  FULL_ROUND: { bg: 'bg-purple-500', border: 'border-purple-600', text: 'text-white', label: 'Completo' },
+  TRANSFER_TIRANO: { bg: 'bg-orange-500', border: 'border-orange-600', text: 'text-white', label: 'Transfer' },
 };
 
 function getTimePosition(date: Date): number {
@@ -241,7 +249,10 @@ export function DriverTimeline({
 
                       const left = getTimePosition(start);
                       const width = getTimeWidth(start, end);
-                      const colors = statusColors[trip.status];
+                      // Usa colori per tipo di viaggio, con override per cancelled
+                      const tripType = trip.tripType || 'FULL_ROUND';
+                      const isCancelled = trip.status === 'CANCELLED';
+                      const colors = isCancelled ? statusColors.CANCELLED : tripTypeColors[tripType];
                       const isSelected = trip.id === selectedTripId;
 
                       const totalLiters = trip.trailers?.reduce((sum, t) => sum + t.litersLoaded, 0) || 0;
@@ -315,18 +326,22 @@ export function DriverTimeline({
 
       {/* Legend */}
       <div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground flex-shrink-0">
-        <span className="font-medium">Stato:</span>
+        <span className="font-medium">Tipo:</span>
+        <div className="flex items-center gap-1">
+          <div className="w-3 h-3 rounded bg-green-500" />
+          <span>Shuttle</span>
+        </div>
         <div className="flex items-center gap-1">
           <div className="w-3 h-3 rounded bg-blue-500" />
-          <span>Pianificato</span>
+          <span>Supply</span>
         </div>
         <div className="flex items-center gap-1">
           <div className="w-3 h-3 rounded bg-purple-500" />
-          <span>In corso</span>
+          <span>Completo</span>
         </div>
         <div className="flex items-center gap-1">
-          <div className="w-3 h-3 rounded bg-green-500" />
-          <span>Completato</span>
+          <div className="w-3 h-3 rounded bg-orange-500" />
+          <span>Transfer</span>
         </div>
         <div className="flex items-center gap-1">
           <div className="w-3 h-3 rounded bg-red-400" />
