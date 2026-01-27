@@ -24,11 +24,11 @@ interface DriverTimelineProps {
   onSlotClick?: (driverId: string, date: Date, hour: number) => void;
 }
 
-// Timeline config
-const START_HOUR = 5;
-const END_HOUR = 22;
+// Timeline config - compatto per evitare scroll orizzontale
+const START_HOUR = 6;
+const END_HOUR = 21;
 const HOURS = Array.from({ length: END_HOUR - START_HOUR + 1 }, (_, i) => START_HOUR + i);
-const HOUR_WIDTH = 80; // pixels per hour
+const HOUR_WIDTH = 50; // pixels per hour (ridotto da 80)
 
 const statusColors: Record<TripStatus, { bg: string; border: string; text: string }> = {
   PLANNED: { bg: 'bg-blue-500', border: 'border-blue-600', text: 'text-white' },
@@ -170,21 +170,21 @@ export function DriverTimeline({
       <div className="flex-1 overflow-hidden border rounded-lg bg-card">
         <div className="flex h-full">
           {/* Driver names column (fixed) */}
-          <div className="w-48 flex-shrink-0 border-r bg-muted/30">
+          <div className="w-32 flex-shrink-0 border-r bg-muted/30">
             {/* Header spacer */}
-            <div className="h-10 border-b flex items-center px-3 font-medium text-sm text-muted-foreground">
+            <div className="h-8 border-b flex items-center px-2 font-medium text-xs text-muted-foreground">
               Autisti
             </div>
             {/* Driver rows */}
             {drivers.map((driver) => (
               <div
                 key={driver.id}
-                className="h-20 border-b flex items-center px-3 gap-2"
+                className="h-14 border-b flex items-center px-2 gap-1"
               >
                 <div className="flex-1 min-w-0">
-                  <div className="font-medium truncate">{driver.name}</div>
-                  <Badge variant="outline" className="text-xs mt-1">
-                    {driver.type === 'RESIDENT' ? 'Fisso' : driver.type === 'ON_CALL' ? 'Reperibile' : 'Emergenza'}
+                  <div className="font-medium text-sm truncate">{driver.name}</div>
+                  <Badge variant="outline" className="text-[10px] px-1 py-0">
+                    {driver.type === 'RESIDENT' ? 'Fisso' : driver.type === 'ON_CALL' ? 'Reperibile' : 'Emerg.'}
                   </Badge>
                 </div>
               </div>
@@ -195,14 +195,14 @@ export function DriverTimeline({
           <div className="flex-1 overflow-x-auto">
             <div style={{ minWidth: timelineWidth }}>
               {/* Time header */}
-              <div className="h-10 border-b flex bg-muted/20 sticky top-0">
+              <div className="h-8 border-b flex bg-muted/20 sticky top-0">
                 {HOURS.map((hour) => (
                   <div
                     key={hour}
-                    className="border-r text-center text-sm text-muted-foreground flex items-center justify-center"
+                    className="border-r text-center text-xs text-muted-foreground flex items-center justify-center"
                     style={{ width: HOUR_WIDTH }}
                   >
-                    {hour.toString().padStart(2, '0')}:00
+                    {hour}:00
                   </div>
                 ))}
               </div>
@@ -214,7 +214,7 @@ export function DriverTimeline({
                 return (
                   <div
                     key={driver.id}
-                    className="h-20 border-b relative group"
+                    className="h-14 border-b relative group"
                     onClick={(e) => {
                       if (isDraft && onSlotClick && e.target === e.currentTarget) {
                         const rect = e.currentTarget.getBoundingClientRect();

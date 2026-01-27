@@ -10,6 +10,7 @@
   - Arancione: Transfer (sversamento)
   - Rosso: Annullato
   - Legenda aggiornata di conseguenza
+- **Calendario più compatto**: ridotto HOUR_WIDTH (50px), range orario 6-21, colonna autisti più stretta per evitare scroll orizzontale
 
 ### Fixed
 - **Durate viaggi calcolate dinamicamente dal DB**: le durate SHUTTLE, SUPPLY, FULL_ROUND ora vengono calcolate dalle rotte nel database invece di essere hardcoded
