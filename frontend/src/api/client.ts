@@ -142,13 +142,14 @@ export const routesApi = {
 export interface MaxCapacityResult {
   maxLiters: number;
   workingDays: number;
+  daysWithDeliveries: number; // Giorni con almeno un autista disponibile
   breakdown: {
     livignoDriverShuttles: number;
     tiranoDriverShuttles: number;
     tiranoDriverFullRounds: number;
     supplyTrips: number;
   };
-  dailyCapacity: number;
+  dailyCapacity: number; // maxLiters / daysWithDeliveries
   constraints: string[];
 }
 

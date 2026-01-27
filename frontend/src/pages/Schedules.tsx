@@ -202,6 +202,8 @@ export default function Schedules() {
     setInitialStates(prev => prev.map(state =>
       state.trailerId === trailerId ? { ...state, [field]: value } : state
     ));
+    // Invalida il risultato MAX perché lo stato iniziale è cambiato
+    setMaxCapacityResult(null);
   };
 
   const updateVehicleState = (vehicleId: string, locationId: string) => {
@@ -248,6 +250,11 @@ export default function Schedules() {
     }
   }, [isDialogOpen, drivers, workingDays]);
 
+  // Invalida MAX quando cambiano le date (workingDays)
+  useEffect(() => {
+    setMaxCapacityResult(null);
+  }, [workingDays]);
+
   // Helper to toggle a single day for a driver
   const toggleDriverDay = (driverId: string, date: string) => {
     setDriverAvailability(prev => {
@@ -261,6 +268,8 @@ export default function Schedules() {
       newMap.set(driverId, driverDays);
       return newMap;
     });
+    // Invalida il risultato MAX perché la disponibilità è cambiata
+    setMaxCapacityResult(null);
   };
 
   // Helper to select all days for a driver
@@ -270,6 +279,8 @@ export default function Schedules() {
       newMap.set(driverId, new Set(workingDays));
       return newMap;
     });
+    // Invalida il risultato MAX perché la disponibilità è cambiata
+    setMaxCapacityResult(null);
   };
 
   // Helper to select no days for a driver
@@ -279,6 +290,8 @@ export default function Schedules() {
       newMap.set(driverId, new Set());
       return newMap;
     });
+    // Invalida il risultato MAX perché la disponibilità è cambiata
+    setMaxCapacityResult(null);
   };
 
   // Convert driver availability to API format
@@ -399,7 +412,7 @@ export default function Schedules() {
 
     toast({
       title: 'Capacità massima impostata',
-      description: `${maxCapacityResult.maxLiters.toLocaleString()}L in ${maxCapacityResult.workingDays} giorni`,
+      description: `${maxCapacityResult.maxLiters.toLocaleString()}L in ${maxCapacityResult.daysWithDeliveries} giorni con autisti`,
       variant: 'success',
     });
   };
@@ -472,14 +485,18 @@ export default function Schedules() {
       </Card>
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="max-w-4xl">
+        <DialogContent className="max-w-7xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Nuova Pianificazione</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSubmit(onSubmit)}>
-            {/* Main form fields */}
-            <div className="grid grid-cols-2 gap-6">
+            {/* Three Column Layout */}
+            <div className="grid grid-cols-3 gap-6">
+              {/* Column 1: Project Details */}
               <div className="space-y-4">
+                <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide border-b pb-2">
+                  Progetto
+                </h3>
                 <div>
                   <Label htmlFor="name">Nome</Label>
                   <Input id="name" placeholder="es. Settimana 1-7 Febbraio" {...register('name')} />
@@ -488,7 +505,7 @@ export default function Schedules() {
                   )}
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-2 gap-2">
                   <div>
                     <Label htmlFor="startDate">Data Inizio</Label>
                     <Input id="startDate" type="date" {...register('startDate')} />
@@ -505,17 +522,20 @@ export default function Schedules() {
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between p-3 bg-muted/50 rounded-md">
+                <div className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
                   <div>
-                    <Label htmlFor="includeWeekend" className="font-medium">Includi weekend</Label>
+                    <Label htmlFor="includeWeekend" className="font-medium text-sm">Includi weekend</Label>
                     <p className="text-xs text-muted-foreground">
-                      Abilita per periodi eccezionali con consegne sabato/domenica
+                      Per consegne sabato/domenica
                     </p>
                   </div>
                   <Switch
                     id="includeWeekend"
                     checked={includeWeekend}
-                    onCheckedChange={setIncludeWeekend}
+                    onCheckedChange={(checked) => {
+                      setIncludeWeekend(checked);
+                      setMaxCapacityResult(null); // Invalida MAX
+                    }}
                   />
                 </div>
 
@@ -554,21 +574,101 @@ export default function Schedules() {
                   <Label htmlFor="notes">Note (opzionale)</Label>
                   <Input id="notes" {...register('notes')} />
                 </div>
+              </div>
 
-                {/* Vehicles Section */}
-                {vehicles && vehicles.length > 0 && locations && locations.length > 0 && (
-                  <div className="border-t pt-4">
-                    <Label className="text-base font-semibold">Motrici</Label>
-                    <p className="text-sm text-muted-foreground mb-3">
-                      Posizione iniziale di ciascuna motrice.
-                    </p>
-                    <div className="space-y-2">
+              {/* Column 2: Driver Availability */}
+              <div className="space-y-4">
+                <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide border-b pb-2">
+                  Autisti
+                </h3>
+                {drivers && drivers.length > 0 && workingDays.length > 0 ? (
+                  <div className="space-y-2">
+                    {drivers.map((driver: Driver) => {
+                      const driverDays = driverAvailability.get(driver.id) || new Set();
+                      const allSelected = workingDays.every(d => driverDays.has(d));
+                      const noneSelected = driverDays.size === 0;
+
+                      return (
+                        <div key={driver.id} className="p-2 bg-muted/50 rounded-md">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-1">
+                              <span className="font-medium text-sm">{driver.name}</span>
+                              <Badge className={`text-[10px] px-1 ${getDriverTypeBadgeColor(driver.type)}`}>
+                                {getDriverTypeLabel(driver.type)}
+                              </Badge>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <Button
+                                type="button"
+                                variant={allSelected ? 'secondary' : 'outline'}
+                                size="sm"
+                                className="h-5 text-[10px] px-1"
+                                onClick={() => selectAllDaysForDriver(driver.id)}
+                              >
+                                Tutti
+                              </Button>
+                              <Button
+                                type="button"
+                                variant={noneSelected ? 'secondary' : 'outline'}
+                                size="sm"
+                                className="h-5 text-[10px] px-1"
+                                onClick={() => selectNoDaysForDriver(driver.id)}
+                              >
+                                Nessuno
+                              </Button>
+                            </div>
+                          </div>
+                          <div className="space-y-1">
+                            {workingDaysByWeek.map((week, weekIdx) => (
+                              <div key={weekIdx} className="flex flex-wrap gap-1">
+                                {week.map((day) => (
+                                  <label
+                                    key={day}
+                                    className={`
+                                      inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] cursor-pointer
+                                      ${driverDays.has(day)
+                                        ? 'bg-primary text-primary-foreground'
+                                        : 'bg-background border hover:bg-accent'
+                                      }
+                                    `}
+                                  >
+                                    <Checkbox
+                                      checked={driverDays.has(day)}
+                                      onCheckedChange={() => toggleDriverDay(driver.id, day)}
+                                      className="h-2.5 w-2.5"
+                                    />
+                                    {formatDayShort(day)}
+                                  </label>
+                                ))}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Seleziona le date per vedere gli autisti disponibili.
+                  </p>
+                )}
+              </div>
+
+              {/* Column 3: Vehicles (Motrici + Cisterne) */}
+              <div className="space-y-4">
+                {/* Motrici Section */}
+                <div>
+                  <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide border-b pb-2">
+                    Motrici
+                  </h3>
+                  {vehicles && vehicles.length > 0 && locations && locations.length > 0 ? (
+                    <div className="space-y-1 mt-2">
                       {vehicles.map((vehicle: Vehicle) => {
                         const state = vehicleStates.find(s => s.vehicleId === vehicle.id);
                         return (
-                          <div key={vehicle.id} className="flex items-center gap-3 p-2 bg-muted/50 rounded-md">
-                            <div className="w-28">
-                              <span className="font-medium text-sm">
+                          <div key={vehicle.id} className="flex items-center gap-2 p-1.5 bg-muted/50 rounded-md">
+                            <div className="w-20">
+                              <span className="font-medium text-xs">
                                 {vehicle.name || vehicle.plate}
                               </span>
                             </div>
@@ -577,7 +677,7 @@ export default function Schedules() {
                                 value={state?.locationId || ''}
                                 onValueChange={(value) => updateVehicleState(vehicle.id, value)}
                               >
-                                <SelectTrigger className="h-8 text-xs">
+                                <SelectTrigger className="h-7 text-xs">
                                   <SelectValue placeholder="Posizione" />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -593,25 +693,24 @@ export default function Schedules() {
                         );
                       })}
                     </div>
-                  </div>
-                )}
-              </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground mt-2">Nessuna motrice disponibile.</p>
+                  )}
+                </div>
 
-              {/* Trailers Section - Right Column */}
-              <div>
-                {trailers && trailers.length > 0 && locations && locations.length > 0 && (
-                  <div>
-                    <Label className="text-base font-semibold">Cisterne</Label>
-                    <p className="text-sm text-muted-foreground mb-3">
-                      Posizione e stato iniziale di ciascuna cisterna.
-                    </p>
-                    <div className="space-y-2">
+                {/* Cisterne Section */}
+                <div>
+                  <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide border-b pb-2">
+                    Cisterne
+                  </h3>
+                  {trailers && trailers.length > 0 && locations && locations.length > 0 ? (
+                    <div className="space-y-1 mt-2">
                       {trailers.map((trailer: Trailer) => {
                         const state = initialStates.find(s => s.trailerId === trailer.id);
                         return (
-                          <div key={trailer.id} className="flex items-center gap-3 p-2 bg-muted/50 rounded-md">
-                            <div className="w-24">
-                              <span className="font-medium text-sm">
+                          <div key={trailer.id} className="flex items-center gap-2 p-1.5 bg-muted/50 rounded-md">
+                            <div className="w-16">
+                              <span className="font-medium text-xs">
                                 {trailer.name || trailer.plate}
                               </span>
                             </div>
@@ -620,7 +719,7 @@ export default function Schedules() {
                                 value={state?.locationId || ''}
                                 onValueChange={(value) => updateTrailerState(trailer.id, 'locationId', value)}
                               >
-                                <SelectTrigger className="h-8 text-xs">
+                                <SelectTrigger className="h-7 text-xs">
                                   <SelectValue placeholder="Posizione" />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -632,8 +731,8 @@ export default function Schedules() {
                                 </SelectContent>
                               </Select>
                             </div>
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs text-muted-foreground w-12">
+                            <div className="flex items-center gap-1">
+                              <span className="text-[10px] text-muted-foreground w-10">
                                 {state?.isFull ? 'Piena' : 'Vuota'}
                               </span>
                               <Switch
@@ -646,85 +745,12 @@ export default function Schedules() {
                         );
                       })}
                     </div>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Driver Availability Section - Full Width */}
-            {drivers && drivers.length > 0 && workingDays.length > 0 && (
-              <div className="border-t pt-4 mt-4">
-                <Label className="text-base font-semibold">Disponibilità Autisti</Label>
-                <p className="text-sm text-muted-foreground mb-3">
-                  Seleziona i giorni in cui ogni autista è disponibile.
-                </p>
-                <div className="space-y-3 max-h-64 overflow-y-auto">
-                  {drivers.map((driver: Driver) => {
-                    const driverDays = driverAvailability.get(driver.id) || new Set();
-                    const allSelected = workingDays.every(d => driverDays.has(d));
-                    const noneSelected = driverDays.size === 0;
-
-                    return (
-                      <div key={driver.id} className="p-3 bg-muted/50 rounded-md">
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium text-sm">{driver.name}</span>
-                            <Badge className={`text-xs ${getDriverTypeBadgeColor(driver.type)}`}>
-                              {getDriverTypeLabel(driver.type)}
-                            </Badge>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Button
-                              type="button"
-                              variant={allSelected ? 'secondary' : 'outline'}
-                              size="sm"
-                              className="h-6 text-xs px-2"
-                              onClick={() => selectAllDaysForDriver(driver.id)}
-                            >
-                              Tutti
-                            </Button>
-                            <Button
-                              type="button"
-                              variant={noneSelected ? 'secondary' : 'outline'}
-                              size="sm"
-                              className="h-6 text-xs px-2"
-                              onClick={() => selectNoDaysForDriver(driver.id)}
-                            >
-                              Nessuno
-                            </Button>
-                          </div>
-                        </div>
-                        <div className="space-y-1">
-                          {workingDaysByWeek.map((week, weekIdx) => (
-                            <div key={weekIdx} className="flex flex-wrap gap-1">
-                              {week.map((day) => (
-                                <label
-                                  key={day}
-                                  className={`
-                                    inline-flex items-center gap-1 px-2 py-1 rounded text-xs cursor-pointer
-                                    ${driverDays.has(day)
-                                      ? 'bg-primary text-primary-foreground'
-                                      : 'bg-background border hover:bg-accent'
-                                    }
-                                  `}
-                                >
-                                  <Checkbox
-                                    checked={driverDays.has(day)}
-                                    onCheckedChange={() => toggleDriverDay(driver.id, day)}
-                                    className="h-3 w-3"
-                                  />
-                                  {formatDayShort(day)}
-                                </label>
-                              ))}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })}
+                  ) : (
+                    <p className="text-sm text-muted-foreground mt-2">Nessuna cisterna disponibile.</p>
+                  )}
                 </div>
               </div>
-            )}
+            </div>
 
             <DialogFooter className="mt-6">
               <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
@@ -749,7 +775,10 @@ export default function Schedules() {
                   {maxCapacityResult.maxLiters.toLocaleString()}L
                 </p>
                 <p className="text-sm text-muted-foreground mt-1">
-                  in {maxCapacityResult.workingDays} giorni{includeWeekend ? ' (weekend incluso)' : ' lavorativi'}
+                  in {maxCapacityResult.daysWithDeliveries} giorni con autisti disponibili
+                  {maxCapacityResult.daysWithDeliveries < maxCapacityResult.workingDays && (
+                    <span className="text-yellow-600"> (su {maxCapacityResult.workingDays} {includeWeekend ? 'totali' : 'lavorativi'})</span>
+                  )}
                 </p>
                 <p className="text-sm text-muted-foreground">
                   (~{maxCapacityResult.dailyCapacity.toLocaleString()}L/giorno)
