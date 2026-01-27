@@ -490,10 +490,10 @@ export default function Schedules() {
             <DialogTitle>Nuova Pianificazione</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSubmit(onSubmit)}>
-            {/* Three Column Layout */}
-            <div className="grid grid-cols-3 gap-6">
+            {/* Three Column Layout: Progetto (small) | Autisti (medium) | Mezzi (large) */}
+            <div className="grid grid-cols-[200px_1fr_1.2fr] gap-4">
               {/* Column 1: Project Details */}
-              <div className="space-y-4">
+              <div className="space-y-3">
                 <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide border-b pb-2">
                   Progetto
                 </h3>
