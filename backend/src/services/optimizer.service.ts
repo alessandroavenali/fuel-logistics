@@ -19,6 +19,7 @@ interface OptimizationResult {
       SHUTTLE_LIVIGNO: number;
       SUPPLY_MILANO: number;
       FULL_ROUND: number;
+      TRANSFER_TIRANO: number;
     };
   };
 }
@@ -38,29 +39,41 @@ interface GeneratedTrip {
   }[];
 }
 
+// ============================================================================
+// NUOVO MODELLO LOGISTICO - MOTRICI CON CISTERNA INTEGRATA
+// ============================================================================
+// Le motrici hanno una cisterna integrata (17.500L, non staccabile) e possono
+// trainare max 1 rimorchio. I rimorchi pieni NON salgono MAI a Livigno.
+// Il trasferimento del carburante avviene tramite sversamento a Tirano.
+// ============================================================================
+
 // Durate viaggi in minuti
 const TRIP_DURATIONS = {
-  SHUTTLE_LIVIGNO: 210,  // 90 (andata) + 90 (ritorno) + 30 (scarico) = 3.5h
+  SHUTTLE_LIVIGNO: 270,              // 120 (andata) + 120 (ritorno) + 30 (scarico) = 4.5h
   SUPPLY_MILANO_FROM_TIRANO: 360,    // 150 (andata) + 150 (ritorno) + 60 (carico) = 6h
-  SUPPLY_MILANO_FROM_LIVIGNO: 540,   // 6h + 3h (Livigno↔Tirano extra) = 9h
-  FULL_ROUND: 480,       // 8h completo
+  SUPPLY_MILANO_FROM_LIVIGNO: 600,   // 6h + 4h (Livigno↔Tirano extra, 120min*2) = 10h
+  FULL_ROUND: 540,                   // 9h (aggiornato con tempi montagna 2h)
+  TRANSFER_TIRANO: 30,               // Sversamento rimorchio pieno → motrice vuota
 };
 
-// Litri consegnati per tipo viaggio
+// Litri consegnati a Livigno per tipo viaggio
 const TRIP_LITERS = {
-  SHUTTLE_LIVIGNO: 17500,  // 1 cisterna a Livigno
-  SUPPLY_MILANO: 0,        // Non consegna, riempie deposito Tirano
-  FULL_ROUND: 17500,       // 1 cisterna a Livigno
+  SHUTTLE_LIVIGNO: 17500,  // Cisterna integrata della motrice
+  SUPPLY_MILANO: 35000,    // Motrice (17.500) + 1 rimorchio (17.500) - non consegna, riempie Tirano
+  FULL_ROUND: 17500,       // Cisterna integrata a Livigno
+  TRANSFER_TIRANO: 17500,  // Sversamento rimorchio → cisterna integrata
 };
 
-// Cisterne utilizzate per tipo viaggio
+// Rimorchi utilizzati per tipo viaggio
 const TRIP_TRAILERS = {
-  SHUTTLE_LIVIGNO: 1,  // Max 1 su strada montagna
-  SUPPLY_MILANO: 2,    // Può portare 2 cisterne vuote, torna con 2 piene
-  FULL_ROUND: 1,       // 1 cisterna tutto il percorso
+  SHUTTLE_LIVIGNO: 0,  // Solo motrice sale (cisterna integrata)
+  SUPPLY_MILANO: 1,    // Motrice + 1 rimorchio vuoto → tornano pieni
+  FULL_ROUND: 0,       // Solo motrice
+  TRANSFER_TIRANO: 1,  // 1 rimorchio pieno viene sversato
 };
 
 const LITERS_PER_TRAILER = 17500;
+const LITERS_PER_INTEGRATED_TANK = 17500;
 const DEFAULT_DEPARTURE_HOUR = 6;
 const MAX_DAILY_HOURS = 9; // ADR limit
 const MAX_SHUTTLE_PER_DAY_LIVIGNO_DRIVER = 3;
@@ -69,13 +82,18 @@ const MAX_SHUTTLE_PER_DAY_LIVIGNO_DRIVER = 3;
 // STATO CISTERNE
 // ============================================================================
 
-interface CisternState {
-  atTiranoFull: Set<string>;   // ID cisterne piene a Tirano
-  atTiranoEmpty: Set<string>;  // ID cisterne vuote a Tirano
-  atLivignoFull: Set<string>;  // ID cisterne piene a Livigno
-  atLivignoEmpty: Set<string>; // ID cisterne vuote a Livigno
-  atMilano: Set<string>;       // ID cisterne a Milano (sorgente)
-  inTransit: Set<string>;      // ID cisterne in viaggio
+// Stato RIMORCHI (staccabili, base Tirano)
+interface TrailerState {
+  atTiranoFull: Set<string>;   // ID rimorchi pieni a Tirano (da sversare)
+  atTiranoEmpty: Set<string>;  // ID rimorchi vuoti a Tirano (per SUPPLY)
+  atMilano: Set<string>;       // ID rimorchi a Milano (sorgente)
+  inTransit: Set<string>;      // ID rimorchi in viaggio
+}
+
+// Stato MOTRICI (cisterna integrata)
+interface VehicleTankState {
+  tankFull: Map<string, boolean>;      // vehicleId → cisterna integrata piena/vuota
+  location: Map<string, string>;       // vehicleId → locationId corrente
 }
 
 // ============================================================================
@@ -94,7 +112,8 @@ interface AvailabilityTracker {
   driverShuttleCountByDate: Map<string, number>; // Per driver Livigno
   vehicleTimeSlots: Map<string, TimeSlot[]>; // vehicleId -> array di slot occupati
   trailerTimeSlots: Map<string, TimeSlot[]>; // trailerId -> array di slot occupati
-  cisternState: CisternState;
+  trailerState: TrailerState;                // Stato rimorchi
+  vehicleTankState: VehicleTankState;        // Stato cisterne integrate motrici
 }
 
 // ============================================================================
@@ -174,49 +193,58 @@ export async function optimizeSchedule(
     driverShuttleCountByDate: new Map(),
     vehicleTimeSlots: new Map(),
     trailerTimeSlots: new Map(),
-    cisternState: {
+    trailerState: {
       atTiranoFull: new Set(),
       atTiranoEmpty: new Set(),
-      atLivignoFull: new Set(),
-      atLivignoEmpty: new Set(),
       atMilano: new Set(),
       inTransit: new Set(),
     },
+    vehicleTankState: {
+      tankFull: new Map(),
+      location: new Map(),
+    },
   };
 
-  // Initialize cistern state from schedule initial states or default based on baseLocation
+  // Initialize TRAILER state from schedule initial states or default based on baseLocation
+  // NOTA: I rimorchi sono sempre a Tirano o Milano, MAI a Livigno
   for (const trailer of trailers) {
     const initialState = schedule.initialStates.find(s => s.trailerId === trailer.id);
 
     if (initialState) {
-      // Usa lo stato iniziale esplicito dello schedule
       if (initialState.location.type === 'SOURCE') {
         // A Milano
-        tracker.cisternState.atMilano.add(trailer.id);
-      } else if (initialState.location.type === 'PARKING') {
-        // A Tirano
+        tracker.trailerState.atMilano.add(trailer.id);
+      } else {
+        // A Tirano (PARKING) - i rimorchi non vanno mai a Livigno
         if (initialState.isFull) {
-          tracker.cisternState.atTiranoFull.add(trailer.id);
+          tracker.trailerState.atTiranoFull.add(trailer.id);
         } else {
-          tracker.cisternState.atTiranoEmpty.add(trailer.id);
-        }
-      } else if (initialState.location.type === 'DESTINATION') {
-        // A Livigno
-        if (initialState.isFull) {
-          tracker.cisternState.atLivignoFull.add(trailer.id);
-        } else {
-          tracker.cisternState.atLivignoEmpty.add(trailer.id);
+          tracker.trailerState.atTiranoEmpty.add(trailer.id);
         }
       }
     } else {
-      // Default: usa baseLocation della cisterna (vuota)
-      // Se ha base Livigno -> a Livigno vuota
-      // Altrimenti (Tirano o non specificata) -> a Tirano vuota
-      if (trailer.baseLocation?.type === 'DESTINATION') {
-        tracker.cisternState.atLivignoEmpty.add(trailer.id);
-      } else {
-        tracker.cisternState.atTiranoEmpty.add(trailer.id);
-      }
+      // Default: tutti i rimorchi partono vuoti a Tirano
+      tracker.trailerState.atTiranoEmpty.add(trailer.id);
+    }
+  }
+
+  // Initialize VEHICLE TANK state (cisterna integrata)
+  // Fetch vehicle states from schedule if available
+  const vehicleStates = await prisma.scheduleVehicleState.findMany({
+    where: { scheduleId },
+    include: { location: true },
+  });
+
+  for (const vehicle of vehicles) {
+    const vehicleState = vehicleStates.find(s => s.vehicleId === vehicle.id);
+
+    if (vehicleState) {
+      tracker.vehicleTankState.tankFull.set(vehicle.id, vehicleState.isTankFull);
+      tracker.vehicleTankState.location.set(vehicle.id, vehicleState.locationId);
+    } else {
+      // Default: cisterna integrata vuota, posizione = base della motrice
+      tracker.vehicleTankState.tankFull.set(vehicle.id, false);
+      tracker.vehicleTankState.location.set(vehicle.id, vehicle.baseLocationId || tiranoLocation.id);
     }
   }
 
@@ -253,12 +281,17 @@ export async function optimizeSchedule(
 
   const generatedTrips: GeneratedTrip[] = [];
   let remainingLiters = schedule.requiredLiters;
-  const tripsByType = { SHUTTLE_LIVIGNO: 0, SUPPLY_MILANO: 0, FULL_ROUND: 0 };
+  const tripsByType = { SHUTTLE_LIVIGNO: 0, SUPPLY_MILANO: 0, FULL_ROUND: 0, TRANSFER_TIRANO: 0 };
 
   // ============================================================================
-  // ALGORITMO DI OTTIMIZZAZIONE - MASSIMIZZA LITRI CONSEGNATI A LIVIGNO
+  // NUOVO ALGORITMO DI OTTIMIZZAZIONE - MOTRICI CON CISTERNA INTEGRATA
   // ============================================================================
-  // Simulazione temporale: traccia quando le cisterne diventano disponibili
+  // PRIORITÀ ASSEGNAZIONE:
+  // 1. Se motrice piena a Tirano → SHUTTLE_LIVIGNO (sale solo la motrice)
+  // 2. Se motrice vuota + rimorchio pieno a Tirano → TRANSFER_TIRANO (30 min sversamento)
+  // 3. Se rimorchi vuoti a Tirano + motrice disponibile → SUPPLY_MILANO (motrice + 1 rimorchio)
+  // 4. Fallback → FULL_ROUND o attesa
+  //
   // I driver lavorano fino al limite ADR (9h, o 10h max 2x/settimana)
 
   for (const currentDay of workingDays) {
@@ -290,45 +323,49 @@ export async function optimizeSchedule(
       });
     }
 
-    // Track when cisterns become available (after SUPPLY returns)
-    // Key: cisternId, Value: time when it becomes full at Tirano
-    const cisternAvailableAt = new Map<string, Date>();
+    // Track when trailers become available (after SUPPLY returns)
+    // Key: trailerId, Value: time when it becomes full at Tirano
+    const trailerAvailableAt = new Map<string, Date>();
+
+    // Track when vehicle tanks become full (after TRANSFER)
+    // Key: vehicleId, Value: time when integrated tank becomes full at Tirano
+    const vehicleTankAvailableAt = new Map<string, Date>();
 
     // End of work day
     const endOfWorkDay = new Date(currentDay);
     endOfWorkDay.setHours(22, 0, 0, 0);
 
     // =========================================================================
-    // ALGORITMO A DUE FASI:
-    // 1. SUPPLY al mattino: tutti i driver Tirano disponibili fanno SUPPLY
-    // 2. SHUTTLE nel pomeriggio: tutti fanno SHUTTLE (Livigno ha priorità)
+    // ALGORITMO CON CISTERNE INTEGRATE:
+    // 1. TRANSFER: sversamento rimorchio pieno → motrice vuota (30 min)
+    // 2. SHUTTLE: motrice piena → Livigno → ritorna vuota (4.5h)
+    // 3. SUPPLY: motrice + 1 rimorchio → Milano → tornano pieni (6h)
+    // 4. FULL_ROUND: fallback se nessuna risorsa disponibile
     //
-    // L'obiettivo è massimizzare gli SHUTTLE paralleli usando tutte le
-    // cisterne piene disponibili.
+    // L'obiettivo è massimizzare i litri consegnati a Livigno.
+    // I rimorchi pieni NON salgono MAI a Livigno!
     // =========================================================================
 
     // Filtra driver disponibili oggi
     // Logica:
-    // - Se il driver è nella lista driverAvailability → usa quelle date
-    // - Se NON è nella lista:
-    //   - RESIDENT → disponibile tutti i giorni (default)
-    //   - ON_CALL → NON disponibile (deve essere esplicitamente attivato)
-    //   - EMERGENCY → NON disponibile (deve essere esplicitamente attivato)
+    // - Se driverAvailability ha entries → usa SOLO quelle date esplicite
+    //   (se un driver non è nella lista, NON è disponibile)
+    // - Se driverAvailability è vuoto/undefined → usa default per tipo
+    //   (RESIDENT = tutti i giorni, ON_CALL/EMERGENCY = mai)
     //
-    // IMPORTANTE: Questo comportamento è allineato con il frontend che di default:
-    // - Seleziona tutti i giorni per RESIDENT
-    // - Non seleziona nessun giorno per ON_CALL e EMERGENCY
+    // IMPORTANTE: Il frontend include solo driver con almeno 1 giorno selezionato.
+    // Se un RESIDENT ha 0 giorni selezionati, non sarà nella lista e non lavorerà.
     const availableDriversToday = [...drivers]
       .filter(d => {
         if (driverAvailability && driverAvailability.length > 0) {
+          // L'utente ha fatto selezioni esplicite → usa SOLO quelle
           const availability = driverAvailability.find(a => a.driverId === d.id);
           if (availability) {
             // Driver nella lista: usa le date specificate
             return availability.availableDates.includes(dateKey);
           } else {
-            // Driver NON nella lista: usa default per tipo
-            // RESIDENT = sempre disponibile, ON_CALL/EMERGENCY = mai
-            return d.type === 'RESIDENT';
+            // Driver NON nella lista: NON disponibile (indipendentemente dal tipo)
+            return false;
           }
         }
         // Nessuna lista specificata (comportamento default):
@@ -353,9 +390,8 @@ export async function optimizeSchedule(
       iterations++;
 
       // Conta risorse disponibili ORA
-      const emptyCisternsAtTirano = tracker.cisternState.atTiranoEmpty.size;
-      const emptyCisternsAtLivigno = tracker.cisternState.atLivignoEmpty.size;
-      const totalEmptyCisterns = emptyCisternsAtTirano + emptyCisternsAtLivigno;
+      const emptyTrailersAtTirano = tracker.trailerState.atTiranoEmpty.size;
+      const fullTrailersAtTirano = tracker.trailerState.atTiranoFull.size;
 
       // Trova il prossimo driver libero
       const sortedDrivers = availableDriversToday
@@ -385,15 +421,38 @@ export async function optimizeSchedule(
           maxHoursToday = 10;
         }
 
-        // Conta cisterne piene disponibili al momento in cui il driver è libero
-        let fullCisternsAvailable = tracker.cisternState.atTiranoFull.size;
-        let pendingFullCisterns: { id: string; availableAt: Date }[] = [];
+        // Conta rimorchi pieni disponibili (inclusi quelli in arrivo)
+        let fullTrailersAvailable = tracker.trailerState.atTiranoFull.size;
+        let pendingFullTrailers: { id: string; availableAt: Date }[] = [];
 
-        for (const [cisternId, availAt] of cisternAvailableAt) {
+        for (const [trailerId, availAt] of trailerAvailableAt) {
           if (availAt <= availableTime) {
-            fullCisternsAvailable++;
+            fullTrailersAvailable++;
           } else {
-            pendingFullCisterns.push({ id: cisternId, availableAt: availAt });
+            pendingFullTrailers.push({ id: trailerId, availableAt: availAt });
+          }
+        }
+
+        // Conta motrici con cisterna integrata piena a Tirano
+        let vehiclesWithFullTankAtTirano = 0;
+        let vehiclesWithEmptyTankAtTirano = 0;
+        let pendingFullTanks: { id: string; availableAt: Date }[] = [];
+
+        for (const vehicle of vehicles) {
+          const location = tracker.vehicleTankState.location.get(vehicle.id);
+          const isFull = tracker.vehicleTankState.tankFull.get(vehicle.id);
+          if (location === tiranoLocation.id) {
+            if (isFull) vehiclesWithFullTankAtTirano++;
+            else vehiclesWithEmptyTankAtTirano++;
+          }
+        }
+
+        // Controlla cisterne integrate in arrivo (dopo TRANSFER)
+        for (const [vehicleId, availAt] of vehicleTankAvailableAt) {
+          if (availAt <= availableTime) {
+            vehiclesWithFullTankAtTirano++;
+          } else {
+            pendingFullTanks.push({ id: vehicleId, availableAt: availAt });
           }
         }
 
@@ -402,23 +461,15 @@ export async function optimizeSchedule(
         let waitUntil: Date | null = null;
 
         // =================================================================
-        // TUTTI I DRIVER: SHUTTLE o SUPPLY - BILANCIAMENTO OTTIMALE
+        // NUOVO ALGORITMO CON CISTERNE INTEGRATE
         //
-        // OBIETTIVO: Massimizzare litri a Livigno (priorità 1) E cisterne
-        // piene a Tirano (priorità 2, a parità di Livigno)
+        // PRIORITÀ ASSEGNAZIONE:
+        // 1. Se motrice piena a Tirano → SHUTTLE_LIVIGNO (sale solo la motrice)
+        // 2. Se motrice vuota + rimorchio pieno a Tirano → TRANSFER_TIRANO (30 min)
+        // 3. Se rimorchi vuoti a Tirano + motrice disponibile → SUPPLY_MILANO
+        // 4. Fallback → FULL_ROUND o attesa
         //
-        // LOGICA:
-        // 1. Se ci sono cisterne piene → SHUTTLE (consegna!)
-        // 2. Se ci sono più driver disponibili che cisterne piene,
-        //    i driver "extra" fanno SUPPLY invece di aspettare
-        // 3. Non aspettare MAI se puoi fare SUPPLY
-        // 4. Fallback: FULL_ROUND
-        //
-        // ESEMPIO: 4 piene, 4 driver, 2 vuote
-        // - 2 driver: SHUTTLE (usano 2 piene)
-        // - 1 driver: SHUTTLE (usa 1 piena)
-        // - 1 driver: SUPPLY (usa 2 vuote) ← invece di aspettare!
-        // Risultato: stesso throughput Livigno + cisterne pronte per dopo
+        // NOTA: I rimorchi pieni NON salgono MAI a Livigno!
         // =================================================================
 
         const isLivignoDriver = driver.baseLocationId === livignoLocation.id;
@@ -426,48 +477,64 @@ export async function optimizeSchedule(
           ? TRIP_DURATIONS.SUPPLY_MILANO_FROM_LIVIGNO
           : TRIP_DURATIONS.SUPPLY_MILANO_FROM_TIRANO;
         const supplyHours = supplyDuration / 60;
+        const shuttleHours = TRIP_DURATIONS.SHUTTLE_LIVIGNO / 60; // 4.5h
+        const transferHours = TRIP_DURATIONS.TRANSFER_TIRANO / 60; // 0.5h
 
         const hoursUntilEndOfDay = (endOfWorkDay.getTime() - availableTime.getTime()) / (1000 * 60 * 60);
         const hoursRemaining = maxHoursToday - state.hoursWorked;
         const canDoSupply = hoursRemaining >= supplyHours && hoursUntilEndOfDay >= supplyHours;
-        const canDoShuttle = hoursRemaining >= 3.5 && hoursUntilEndOfDay >= 3.5;
+        const canDoShuttle = hoursRemaining >= shuttleHours && hoursUntilEndOfDay >= shuttleHours;
+        const canDoTransfer = hoursRemaining >= transferHours && hoursUntilEndOfDay >= transferHours;
+        const canDoFullRound = hoursRemaining >= 9 && hoursUntilEndOfDay >= 9;
 
-        // Conta driver disponibili "adesso" (entro 30 min) per bilanciamento
-        const driversAvailableNow = sortedDrivers.filter(d =>
-          Math.abs(d.state.nextAvailable.getTime() - availableTime.getTime()) < 30 * 60 * 1000 &&
-          d.state.nextAvailable < endOfWorkDay
-        ).length;
+        // Calcola quanti rimorchi pieni sono in attesa o in arrivo
+        const pendingFullTrailerCount = fullTrailersAvailable + pendingFullTrailers.length;
 
-        // Calcola se questo driver dovrebbe fare SUPPLY invece di SHUTTLE
-        // per bilanciare le risorse (più driver che cisterne piene)
-        const shouldBalanceWithSupply =
-          driversAvailableNow > fullCisternsAvailable &&
-          totalEmptyCisterns >= 2 &&
-          canDoSupply &&
-          pendingFullCisterns.length < driversAvailableNow; // Non troppi SUPPLY già in corso
+        // Calcola quante motrici vuote saranno disponibili per TRANSFER
+        // (serve per bilanciare SUPPLY vs capacità di smaltire i rimorchi pieni)
+        const vehiclesAvailableForTransfer = vehiclesWithEmptyTankAtTirano +
+          pendingFullTanks.filter(p => p.availableAt <= endOfWorkDay).length;
 
-        if (fullCisternsAvailable >= 1 && canDoShuttle && !shouldBalanceWithSupply) {
-          // Priorità 1: SHUTTLE se ci sono cisterne piene
+        // PRIORITÀ 1: SHUTTLE se c'è una motrice con cisterna piena a Tirano
+        if (vehiclesWithFullTankAtTirano >= 1 && canDoShuttle) {
           tripType = 'SHUTTLE_LIVIGNO';
           tripDurationMinutes = TRIP_DURATIONS.SHUTTLE_LIVIGNO;
-        } else if (totalEmptyCisterns >= 2 && canDoSupply) {
-          // Priorità 2: SUPPLY - riempie cisterne per shuttle futuri
-          // IMPORTANTE: fai SUPPLY invece di aspettare!
-          tripType = 'SUPPLY_MILANO';
-          tripDurationMinutes = supplyDuration;
-        } else if (fullCisternsAvailable >= 1 && canDoShuttle) {
-          // Priorità 3: SHUTTLE anche se avremmo preferito bilanciare
-          // (ma non ci sono vuote per SUPPLY)
-          tripType = 'SHUTTLE_LIVIGNO';
-          tripDurationMinutes = TRIP_DURATIONS.SHUTTLE_LIVIGNO;
-        } else if (pendingFullCisterns.length > 0) {
-          // Priorità 4: Aspetta SOLO se non puoi fare altro
-          const nextCistern = pendingFullCisterns.sort((a, b) =>
-            a.availableAt.getTime() - b.availableAt.getTime()
-          )[0];
-          waitUntil = nextCistern.availableAt;
-        } else if ((totalEmptyCisterns > 0 || tracker.cisternState.atMilano.size > 0) && hoursRemaining >= 8 && hoursUntilEndOfDay >= 8) {
-          // Fallback: FULL_ROUND (va a Milano, carica, consegna a Livigno)
+        }
+        // PRIORITÀ 2: TRANSFER se c'è motrice vuota + rimorchio pieno a Tirano
+        else if (vehiclesWithEmptyTankAtTirano >= 1 && fullTrailersAvailable >= 1 && canDoTransfer) {
+          tripType = 'TRANSFER_TIRANO';
+          tripDurationMinutes = TRIP_DURATIONS.TRANSFER_TIRANO;
+        }
+        // PRIORITÀ 3: SUPPLY se ci sono rimorchi vuoti a Tirano
+        // MA: non fare SUPPLY se ci sono già troppi rimorchi pieni in attesa
+        // (altrimenti si crea un backlog che non può essere smaltito nei giorni successivi)
+        else if (emptyTrailersAtTirano >= 1 && canDoSupply) {
+          // Limita SUPPLY basandosi sulla capacità minima di smaltimento
+          // I rimorchi pieni richiedono TRANSFER + SHUTTLE (5h totali) per essere smaltiti
+          // Usa un limite conservativo basato sul numero di VEICOLI (non driver)
+          // perché i veicoli sono il vero collo di bottiglia per SHUTTLE
+          //
+          // Regola: massimo (numero veicoli - 1) rimorchi pieni pendenti
+          // Questo lascia sempre almeno 1 veicolo "libero" per continuare il ciclo
+          const maxPendingFullTrailers = Math.max(2, vehicles.length - 1);
+
+          if (pendingFullTrailerCount < maxPendingFullTrailers) {
+            tripType = 'SUPPLY_MILANO';
+            tripDurationMinutes = supplyDuration;
+          }
+        }
+        // PRIORITÀ 4: Aspetta se ci sono risorse in arrivo
+        else if (pendingFullTanks.length > 0 || pendingFullTrailers.length > 0) {
+          const nextAvailable = [
+            ...pendingFullTanks.map(p => p.availableAt),
+            ...pendingFullTrailers.map(p => p.availableAt),
+          ].sort((a, b) => a.getTime() - b.getTime())[0];
+          if (nextAvailable) {
+            waitUntil = nextAvailable;
+          }
+        }
+        // PRIORITÀ 5: FULL_ROUND (fallback)
+        else if (canDoFullRound && (emptyTrailersAtTirano > 0 || tracker.trailerState.atMilano.size > 0)) {
           tripType = 'FULL_ROUND';
           tripDurationMinutes = TRIP_DURATIONS.FULL_ROUND;
         }
@@ -487,7 +554,6 @@ export async function optimizeSchedule(
 
         // Check if driver has enough hours
         if (state.hoursWorked + tripHours > maxHoursToday) {
-          // Try with base 9h if we were planning 10h
           if (maxHoursToday === 10 && state.hoursWorked + tripHours <= MAX_DAILY_HOURS) {
             // Can't do extended day, but can do normal
           } else {
@@ -502,107 +568,183 @@ export async function optimizeSchedule(
 
         if (returnTime > endOfWorkDay) continue;
 
-        // Find available vehicle
-        const vehicle = findAvailableVehicle(vehicles, departureTime, returnTime, tracker);
-        if (!vehicle) continue;
-
-        // Execute trip based on type
+        // Find available vehicle based on trip type requirements
+        let vehicle: typeof vehicles[0] | null = null;
         let tripTrailers: GeneratedTrip['trailers'] = [];
         let success = false;
 
-        if (tripType === 'SUPPLY_MILANO') {
-          // Prendi vuote da Tirano E da Livigno
-          const emptyIdsFromTirano = Array.from(tracker.cisternState.atTiranoEmpty);
-          const emptyIdsFromLivigno = Array.from(tracker.cisternState.atLivignoEmpty);
-          const allEmptyIds = [...emptyIdsFromTirano, ...emptyIdsFromLivigno];
-          const availableEmpty: string[] = [];
-          const fromLivigno: Set<string> = new Set(emptyIdsFromLivigno);
-
-          for (const id of allEmptyIds) {
-            if (isResourceAvailable(id, departureTime, returnTime, tracker.trailerTimeSlots)) {
-              availableEmpty.push(id);
-              if (availableEmpty.length >= 2) break;
+        if (tripType === 'SHUTTLE_LIVIGNO') {
+          // Trova motrice con cisterna integrata PIENA a Tirano
+          for (const v of vehicles) {
+            const location = tracker.vehicleTankState.location.get(v.id);
+            const isFull = tracker.vehicleTankState.tankFull.get(v.id);
+            if (location === tiranoLocation.id && isFull &&
+                isResourceAvailable(v.id, departureTime, returnTime, tracker.vehicleTimeSlots)) {
+              vehicle = v;
+              break;
             }
           }
 
-          if (availableEmpty.length >= 2) {
-            availableEmpty.forEach(id => {
-              reserveResource(id, departureTime, returnTime, driver.id, tracker.trailerTimeSlots);
-              // Mark when these cisterns become full at Tirano
-              cisternAvailableAt.set(id, returnTime);
-              // Rimuovi dallo stato attuale (Tirano o Livigno)
-              tracker.cisternState.atTiranoEmpty.delete(id);
-              tracker.cisternState.atLivignoEmpty.delete(id);
-            });
-
-            tripTrailers = availableEmpty.map(id => ({
-              trailerId: id,
-              litersLoaded: LITERS_PER_TRAILER,
-              isPickup: fromLivigno.has(id), // Se viene da Livigno, è un pickup
-              dropOffLocationId: tiranoLocation.id,
-            }));
-
-            tripsByType.SUPPLY_MILANO++;
-            success = true;
-          }
-        } else if (tripType === 'SHUTTLE_LIVIGNO') {
-          // Find a full cistern (either already at Tirano or just arrived)
-          let cisternId: string | null = null;
-
-          // First check cisterns already at Tirano
-          const fullIds = Array.from(tracker.cisternState.atTiranoFull);
-          cisternId = findAvailableTrailer(fullIds, departureTime, returnTime, tracker);
-
-          // If not found, check cisterns that arrived from SUPPLY
-          if (!cisternId) {
-            for (const [id, availAt] of cisternAvailableAt) {
+          // Controlla anche motrici in arrivo (dopo TRANSFER)
+          if (!vehicle) {
+            for (const [vehicleId, availAt] of vehicleTankAvailableAt) {
               if (availAt <= departureTime &&
-                  isResourceAvailable(id, departureTime, returnTime, tracker.trailerTimeSlots)) {
-                cisternId = id;
-                cisternAvailableAt.delete(id);
-                break;
+                  isResourceAvailable(vehicleId, departureTime, returnTime, tracker.vehicleTimeSlots)) {
+                vehicle = vehicles.find(v => v.id === vehicleId) || null;
+                if (vehicle) {
+                  vehicleTankAvailableAt.delete(vehicleId);
+                  break;
+                }
               }
             }
           }
 
-          if (cisternId) {
-            reserveResource(cisternId, departureTime, returnTime, driver.id, tracker.trailerTimeSlots);
+          if (vehicle) {
+            reserveResource(vehicle.id, departureTime, returnTime, driver.id, tracker.vehicleTimeSlots);
 
-            tripTrailers = [{
-              trailerId: cisternId,
-              litersLoaded: LITERS_PER_TRAILER,
-              isPickup: true,
-            }];
+            // La motrice sale a Livigno con cisterna integrata piena, torna vuota
+            tripTrailers = []; // Nessun rimorchio per SHUTTLE!
 
-            tracker.cisternState.atTiranoFull.delete(cisternId);
-            tracker.cisternState.atTiranoEmpty.add(cisternId);
+            // Aggiorna stato: cisterna integrata da piena a vuota, posizione rimane Tirano
+            tracker.vehicleTankState.tankFull.set(vehicle.id, false);
 
             remainingLiters -= TRIP_LITERS.SHUTTLE_LIVIGNO;
             tripsByType.SHUTTLE_LIVIGNO++;
             success = true;
           }
-        } else if (tripType === 'FULL_ROUND') {
-          const emptyIds = [
-            ...Array.from(tracker.cisternState.atTiranoEmpty),
-            ...Array.from(tracker.cisternState.atLivignoEmpty),
-            ...Array.from(tracker.cisternState.atMilano),
-          ];
-          const cisternId = findAvailableTrailer(emptyIds, departureTime, returnTime, tracker);
+        } else if (tripType === 'TRANSFER_TIRANO') {
+          // Trova motrice con cisterna integrata VUOTA a Tirano
+          for (const v of vehicles) {
+            const location = tracker.vehicleTankState.location.get(v.id);
+            const isFull = tracker.vehicleTankState.tankFull.get(v.id);
+            if (location === tiranoLocation.id && !isFull &&
+                isResourceAvailable(v.id, departureTime, returnTime, tracker.vehicleTimeSlots)) {
+              vehicle = v;
+              break;
+            }
+          }
 
-          if (cisternId) {
-            reserveResource(cisternId, departureTime, returnTime, driver.id, tracker.trailerTimeSlots);
+          // Trova rimorchio pieno a Tirano
+          let trailerId: string | null = null;
+          if (vehicle) {
+            const fullIds = Array.from(tracker.trailerState.atTiranoFull);
+            trailerId = findAvailableTrailer(fullIds, departureTime, returnTime, tracker);
 
-            const fromLivigno = tracker.cisternState.atLivignoEmpty.has(cisternId);
+            // Controlla anche rimorchi in arrivo
+            if (!trailerId) {
+              for (const [id, availAt] of trailerAvailableAt) {
+                if (availAt <= departureTime &&
+                    isResourceAvailable(id, departureTime, returnTime, tracker.trailerTimeSlots)) {
+                  trailerId = id;
+                  trailerAvailableAt.delete(id);
+                  break;
+                }
+              }
+            }
+          }
+
+          if (vehicle && trailerId) {
+            reserveResource(vehicle.id, departureTime, returnTime, driver.id, tracker.vehicleTimeSlots);
+            reserveResource(trailerId, departureTime, returnTime, driver.id, tracker.trailerTimeSlots);
+
             tripTrailers = [{
-              trailerId: cisternId,
+              trailerId: trailerId,
               litersLoaded: LITERS_PER_TRAILER,
-              isPickup: tracker.cisternState.atTiranoEmpty.has(cisternId) || fromLivigno,
+              isPickup: true, // Il rimorchio viene "prelevato" per sversamento
+              dropOffLocationId: tiranoLocation.id, // Rimane a Tirano (vuoto dopo sversamento)
             }];
 
-            tracker.cisternState.atTiranoEmpty.delete(cisternId);
-            tracker.cisternState.atLivignoEmpty.delete(cisternId);
-            tracker.cisternState.atMilano.delete(cisternId);
-            tracker.cisternState.atTiranoEmpty.add(cisternId);
+            // Aggiorna stato: rimorchio da pieno a vuoto, cisterna integrata da vuota a piena
+            tracker.trailerState.atTiranoFull.delete(trailerId);
+            tracker.trailerState.atTiranoEmpty.add(trailerId);
+            tracker.vehicleTankState.tankFull.set(vehicle.id, true);
+
+            // TRANSFER non consegna a Livigno, solo prepara la motrice
+            tripsByType.TRANSFER_TIRANO++;
+            success = true;
+          }
+        } else if (tripType === 'SUPPLY_MILANO') {
+          // Trova motrice disponibile - preferibilmente dalla stessa base del driver
+          // Driver di Livigno possono usare motrici a Livigno (SUPPLY più lungo: 10h)
+          // Driver di Tirano usano motrici a Tirano (SUPPLY normale: 6h)
+          const driverLocationId = driver.baseLocationId || tiranoLocation.id;
+
+          // Prima cerca motrice nella stessa location del driver
+          for (const v of vehicles) {
+            const location = tracker.vehicleTankState.location.get(v.id);
+            if (location === driverLocationId &&
+                isResourceAvailable(v.id, departureTime, returnTime, tracker.vehicleTimeSlots)) {
+              vehicle = v;
+              break;
+            }
+          }
+
+          // Se non trovata, cerca a Tirano (fallback per driver senza base definita)
+          if (!vehicle) {
+            for (const v of vehicles) {
+              const location = tracker.vehicleTankState.location.get(v.id);
+              if (location === tiranoLocation.id &&
+                  isResourceAvailable(v.id, departureTime, returnTime, tracker.vehicleTimeSlots)) {
+                vehicle = v;
+                break;
+              }
+            }
+          }
+
+          // Trova 1 rimorchio vuoto a Tirano
+          let trailerId: string | null = null;
+          if (vehicle) {
+            const emptyIds = Array.from(tracker.trailerState.atTiranoEmpty);
+            trailerId = findAvailableTrailer(emptyIds, departureTime, returnTime, tracker);
+          }
+
+          if (vehicle && trailerId) {
+            reserveResource(vehicle.id, departureTime, returnTime, driver.id, tracker.vehicleTimeSlots);
+            reserveResource(trailerId, departureTime, returnTime, driver.id, tracker.trailerTimeSlots);
+
+            tripTrailers = [{
+              trailerId: trailerId,
+              litersLoaded: LITERS_PER_TRAILER,
+              isPickup: true, // Prende rimorchio vuoto
+              dropOffLocationId: tiranoLocation.id, // Torna pieno a Tirano
+            }];
+
+            // Il rimorchio sarà pieno al ritorno (a Tirano)
+            tracker.trailerState.atTiranoEmpty.delete(trailerId);
+            trailerAvailableAt.set(trailerId, returnTime);
+
+            // La cisterna integrata sarà piena al ritorno
+            const wasIntegratedTankFull = tracker.vehicleTankState.tankFull.get(vehicle.id);
+            if (!wasIntegratedTankFull) {
+              vehicleTankAvailableAt.set(vehicle.id, returnTime);
+            }
+
+            // IMPORTANTE: la motrice torna SEMPRE a Tirano dopo SUPPLY
+            // (anche se partiva da Livigno)
+            tracker.vehicleTankState.location.set(vehicle.id, tiranoLocation.id);
+
+            tripsByType.SUPPLY_MILANO++;
+            success = true;
+          }
+        } else if (tripType === 'FULL_ROUND') {
+          // FULL_ROUND: motrice va a Milano, carica cisterna integrata, consegna a Livigno
+          for (const v of vehicles) {
+            const location = tracker.vehicleTankState.location.get(v.id);
+            if (location === tiranoLocation.id &&
+                isResourceAvailable(v.id, departureTime, returnTime, tracker.vehicleTimeSlots)) {
+              vehicle = v;
+              break;
+            }
+          }
+
+          if (vehicle) {
+            reserveResource(vehicle.id, departureTime, returnTime, driver.id, tracker.vehicleTimeSlots);
+
+            tripTrailers = []; // Nessun rimorchio per FULL_ROUND
+
+            // La cisterna integrata viene usata per il giro completo
+            // Torna vuota a Tirano
+            tracker.vehicleTankState.tankFull.set(vehicle.id, false);
 
             remainingLiters -= TRIP_LITERS.FULL_ROUND;
             tripsByType.FULL_ROUND++;
@@ -612,15 +754,12 @@ export async function optimizeSchedule(
 
         if (!success) continue;
 
-        // Reserve vehicle
-        reserveResource(vehicle.id, departureTime, returnTime, driver.id, tracker.vehicleTimeSlots);
-
         // Create trip
         generatedTrips.push({
           date: currentDay,
           departureTime,
           returnTime,
-          vehicleId: vehicle.id,
+          vehicleId: vehicle!.id,
           driverId: driver.id,
           tripType,
           trailers: tripTrailers,
@@ -648,21 +787,37 @@ export async function optimizeSchedule(
         madeProgress = true;
       }
 
-      // Process any cisterns that have arrived (move from pending to full)
-      for (const [cisternId, availAt] of cisternAvailableAt) {
+      // Process any trailers that have arrived (move from pending to full)
+      for (const [trailerId, availAt] of trailerAvailableAt) {
         const now = sortedDrivers.length > 0
           ? sortedDrivers[0].state.nextAvailable
           : new Date(currentDay.setHours(22, 0, 0, 0));
         if (availAt <= now) {
-          tracker.cisternState.atTiranoFull.add(cisternId);
-          cisternAvailableAt.delete(cisternId);
+          tracker.trailerState.atTiranoFull.add(trailerId);
+          trailerAvailableAt.delete(trailerId);
+        }
+      }
+
+      // Process any vehicle tanks that have become full
+      for (const [vehicleId, availAt] of vehicleTankAvailableAt) {
+        const now = sortedDrivers.length > 0
+          ? sortedDrivers[0].state.nextAvailable
+          : new Date(currentDay.setHours(22, 0, 0, 0));
+        if (availAt <= now) {
+          tracker.vehicleTankState.tankFull.set(vehicleId, true);
+          vehicleTankAvailableAt.delete(vehicleId);
         }
       }
     }
 
-    // End of day: move all pending cisterns to full
-    for (const [cisternId] of cisternAvailableAt) {
-      tracker.cisternState.atTiranoFull.add(cisternId);
+    // End of day: move all pending trailers to full
+    for (const [trailerId] of trailerAvailableAt) {
+      tracker.trailerState.atTiranoFull.add(trailerId);
+    }
+
+    // End of day: mark all pending vehicle tanks as full
+    for (const [vehicleId] of vehicleTankAvailableAt) {
+      tracker.vehicleTankState.tankFull.set(vehicleId, true);
     }
   }
 
@@ -672,7 +827,11 @@ export async function optimizeSchedule(
   }
 
   if (tripsByType.SUPPLY_MILANO === 0 && tripsByType.SHUTTLE_LIVIGNO > 2) {
-    warnings.push('Attenzione: nessun viaggio SUPPLY. Le cisterne a Tirano potrebbero esaurirsi.');
+    warnings.push('Attenzione: nessun viaggio SUPPLY. I rimorchi a Tirano potrebbero esaurirsi.');
+  }
+
+  if (tripsByType.TRANSFER_TIRANO === 0 && tripsByType.SUPPLY_MILANO > 0) {
+    warnings.push('Attenzione: nessun TRANSFER. I rimorchi pieni a Tirano non vengono sversati nelle motrici.');
   }
 
   // Save trips to database
@@ -708,7 +867,7 @@ export async function optimizeSchedule(
     0
   );
 
-  const trailersAtParking = tracker.cisternState.atTiranoFull.size + tracker.cisternState.atTiranoEmpty.size;
+  const trailersAtParking = tracker.trailerState.atTiranoFull.size + tracker.trailerState.atTiranoEmpty.size;
 
   return {
     success: remainingLiters <= 0,
@@ -824,6 +983,7 @@ export interface MaxCapacityResult {
     tiranoDriverShuttles: number;
     tiranoDriverFullRounds: number;
     supplyTrips: number;
+    transferTrips: number;  // NUOVO: sversamenti a Tirano
   };
   dailyCapacity: number; // maxLiters / daysWithDeliveries
   constraints: string[];
@@ -901,16 +1061,51 @@ export async function calculateMaxCapacity(
   });
 
   try {
-    // Usa l'optimizer reale con disponibilità driver
-    const result = await optimizeSchedule(prisma, tempSchedule.id, validDriverAvailability);
+    // Per evitare che aggiungere driver opzionali peggiori il risultato,
+    // calcoliamo anche il baseline (solo driver RESIDENT con tutti i giorni)
+    // e prendiamo il MAX tra le due soluzioni
+    const allDrivers = await prisma.driver.findMany({ where: { isActive: true } });
+    const residentDrivers = allDrivers.filter(d => d.type === 'RESIDENT');
+    const workingDaysForBaseline = getWorkingDays(startDate, endDate, input.includeWeekend ?? false);
+    const baselineDates = workingDaysForBaseline.map(d => d.toISOString().split('T')[0]);
 
-    // Conta solo i litri effettivamente consegnati (SHUTTLE)
+    // Baseline: solo RESIDENT con tutti i giorni
+    const baselineAvailability = residentDrivers.map(d => ({
+      driverId: d.id,
+      availableDates: baselineDates,
+    }));
+
+    // Calcola entrambi i risultati
+    const resultWithAll = await optimizeSchedule(prisma, tempSchedule.id, validDriverAvailability);
+
+    // Cancella i trip per ricalcolare il baseline
+    await prisma.tripTrailer.deleteMany({ where: { trip: { scheduleId: tempSchedule.id } } });
+    await prisma.trip.deleteMany({ where: { scheduleId: tempSchedule.id } });
+
+    const resultBaseline = await optimizeSchedule(prisma, tempSchedule.id, baselineAvailability);
+
+    // Calcola litri per entrambi
+    const litersWithAll = resultWithAll.trips.filter(t =>
+      t.tripType === 'SHUTTLE_LIVIGNO' || t.tripType === 'FULL_ROUND'
+    ).length * LITERS_PER_INTEGRATED_TANK;
+
+    const litersBaseline = resultBaseline.trips.filter(t =>
+      t.tripType === 'SHUTTLE_LIVIGNO' || t.tripType === 'FULL_ROUND'
+    ).length * LITERS_PER_INTEGRATED_TANK;
+
+    // Usa il risultato migliore
+    const result = litersWithAll >= litersBaseline ? resultWithAll : resultBaseline;
+    const usedBaseline = litersWithAll < litersBaseline;
+
+    // Conta solo i litri effettivamente consegnati (SHUTTLE e FULL_ROUND)
     const shuttleTrips = result.trips.filter(t => t.tripType === 'SHUTTLE_LIVIGNO');
     const supplyTrips = result.trips.filter(t => t.tripType === 'SUPPLY_MILANO');
     const fullRoundTrips = result.trips.filter(t => t.tripType === 'FULL_ROUND');
+    const transferTrips = result.trips.filter(t => t.tripType === 'TRANSFER_TIRANO');
 
-    const maxLiters = shuttleTrips.length * LITERS_PER_TRAILER +
-                      fullRoundTrips.length * LITERS_PER_TRAILER;
+    // SHUTTLE e FULL_ROUND consegnano a Livigno (cisterna integrata)
+    const maxLiters = shuttleTrips.length * LITERS_PER_INTEGRATED_TANK +
+                      fullRoundTrips.length * LITERS_PER_INTEGRATED_TANK;
 
     const workingDays = getWorkingDays(startDate, endDate, input.includeWeekend);
     const numWorkingDays = workingDays.length;
@@ -955,6 +1150,7 @@ export async function calculateMaxCapacity(
         tiranoDriverShuttles: tiranoShuttles,
         tiranoDriverFullRounds: fullRoundTrips.length,
         supplyTrips: supplyTrips.length,
+        transferTrips: transferTrips.length,
       },
       dailyCapacity: numDaysWithDeliveries > 0 ? Math.floor(maxLiters / numDaysWithDeliveries) : 0,
       constraints,

@@ -262,8 +262,11 @@ export async function optimizeScheduleHandler(req: Request, res: Response, next:
   try {
     const prisma: PrismaClient = (req as any).prisma;
     const { id } = req.params;
+    const { driverAvailability } = req.body;
 
-    const result = await optimizeSchedule(prisma, id);
+    console.log('[optimize] Schedule:', id, 'DriverAvailability:', driverAvailability?.length || 0);
+
+    const result = await optimizeSchedule(prisma, id, driverAvailability);
 
     res.json(result);
   } catch (error) {
