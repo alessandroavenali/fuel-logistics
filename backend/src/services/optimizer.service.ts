@@ -244,8 +244,8 @@ export async function optimizeSchedule(
     );
   }
 
-  // Get working days
-  const workingDays = getWorkingDays(schedule.startDate, schedule.endDate);
+  // Get working days (use schedule.includeWeekend flag)
+  const workingDays = getWorkingDays(schedule.startDate, schedule.endDate, schedule.includeWeekend);
   if (workingDays.length === 0) {
     throw new Error('No working days in schedule period');
   }
@@ -722,14 +722,14 @@ function findAvailableTrailer(
   return null;
 }
 
-function getWorkingDays(startDate: Date, endDate: Date): Date[] {
+function getWorkingDays(startDate: Date, endDate: Date, includeWeekend: boolean = false): Date[] {
   const days: Date[] = [];
   const current = new Date(startDate);
 
   while (current <= endDate) {
     const dayOfWeek = current.getDay();
-    // Monday (1) to Friday (5)
-    if (dayOfWeek >= 1 && dayOfWeek <= 5) {
+    // Se includeWeekend: tutti i giorni. Altrimenti solo Lun-Ven
+    if (includeWeekend || (dayOfWeek >= 1 && dayOfWeek <= 5)) {
       days.push(new Date(current));
     }
     current.setDate(current.getDate() + 1);
@@ -777,6 +777,7 @@ export interface CalculateMaxInput {
     isFull: boolean;
   }[];
   driverAvailability?: DriverAvailabilityInput[];
+  includeWeekend?: boolean;
 }
 
 export async function calculateMaxCapacity(
@@ -821,6 +822,7 @@ export async function calculateMaxCapacity(
       endDate,
       requiredLiters: 999999999, // Massimo possibile
       status: 'DRAFT',
+      includeWeekend: input.includeWeekend ?? false,
       initialStates: validInitialStates ? {
         create: validInitialStates.map(s => ({
           trailerId: s.trailerId,
@@ -844,7 +846,7 @@ export async function calculateMaxCapacity(
     const maxLiters = shuttleTrips.length * LITERS_PER_TRAILER +
                       fullRoundTrips.length * LITERS_PER_TRAILER;
 
-    const workingDays = getWorkingDays(startDate, endDate);
+    const workingDays = getWorkingDays(startDate, endDate, input.includeWeekend);
     const numWorkingDays = workingDays.length;
 
     const constraints: string[] = [];

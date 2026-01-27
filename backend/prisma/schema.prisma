@@ -23,7 +23,10 @@ model Location {
   routesTo              Route[]                @relation("RouteTo")
   tripDropOffs          TripTrailer[]
   scheduleInitialStates ScheduleInitialState[]
-  driversWithBase       Driver[]               @relation("DriverBase")
+  driversWithBase        Driver[]               @relation("DriverBase")
+  vehiclesWithBase       Vehicle[]              @relation("VehicleBase")
+  trailersWithBase       Trailer[]              @relation("TrailerBase")
+  scheduleVehicleStates  ScheduleVehicleState[]
 }
 
 enum LocationType {
@@ -41,15 +44,18 @@ enum TripType {
 
 // Motrici
 model Vehicle {
-  id          String   @id @default(uuid())
-  plate       String   @unique
-  name        String?
-  maxTrailers Int      @default(2)
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id             String   @id @default(uuid())
+  plate          String   @unique
+  name           String?
+  maxTrailers    Int      @default(2)
+  baseLocationId String?
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
-  trips Trip[]
+  baseLocation      Location?              @relation("VehicleBase", fields: [baseLocationId], references: [id])
+  trips             Trip[]
+  scheduleStates    ScheduleVehicleState[]
 }
 
 // Autobotti/Cisterne
@@ -58,10 +64,12 @@ model Trailer {
   plate          String   @unique
   name           String?
   capacityLiters Int      @default(17500)
+  baseLocationId String?
   isActive       Boolean  @default(true)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
+  baseLocation  Location?              @relation("TrailerBase", fields: [baseLocationId], references: [id])
   tripTrailers  TripTrailer[]
   initialStates ScheduleInitialState[]
 }
@@ -118,11 +126,13 @@ model Schedule {
   requiredLiters Int
   status         ScheduleStatus @default(DRAFT)
   notes          String?
+  includeWeekend Boolean        @default(false)
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
 
-  trips         Trip[]
-  initialStates ScheduleInitialState[]
+  trips               Trip[]
+  initialStates       ScheduleInitialState[]
+  vehicleStates       ScheduleVehicleState[]
 }
 
 // Stato iniziale cisterne per pianificazione
@@ -139,6 +149,21 @@ model ScheduleInitialState {
   location Location @relation(fields: [locationId], references: [id])
 
   @@unique([scheduleId, trailerId])
+}
+
+// Stato iniziale motrici per pianificazione
+model ScheduleVehicleState {
+  id         String   @id @default(uuid())
+  scheduleId String
+  vehicleId  String
+  locationId String
+  createdAt  DateTime @default(now())
+
+  schedule Schedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  vehicle  Vehicle  @relation(fields: [vehicleId], references: [id])
+  location Location @relation(fields: [locationId], references: [id])
+
+  @@unique([scheduleId, vehicleId])
 }
 
 enum ScheduleStatus {

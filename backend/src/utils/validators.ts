@@ -75,10 +75,15 @@ export const createScheduleSchema = z.object({
   requiredLiters: z.number().int().min(0),
   status: ScheduleStatusEnum.optional(),
   notes: z.string().optional(),
+  includeWeekend: z.boolean().optional(),
   initialStates: z.array(z.object({
     trailerId: z.string().uuid(),
     locationId: z.string().uuid(),
     isFull: z.boolean()
+  })).optional(),
+  vehicleStates: z.array(z.object({
+    vehicleId: z.string().uuid(),
+    locationId: z.string().uuid(),
   })).optional(),
 });
 

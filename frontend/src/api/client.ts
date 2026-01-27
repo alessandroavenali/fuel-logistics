@@ -166,6 +166,7 @@ export interface CalculateMaxInput {
     isFull: boolean;
   }[];
   driverAvailability?: DriverAvailabilityInput[];
+  includeWeekend?: boolean;
 }
 
 export const schedulesApi = {

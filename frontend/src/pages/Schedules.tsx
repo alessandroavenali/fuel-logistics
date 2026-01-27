@@ -59,13 +59,14 @@ interface VehicleInitialState {
   locationId: string;
 }
 
-// Helper: genera working days (Lun-Ven) tra due date
-function getWorkingDaysBetween(start: Date, end: Date): string[] {
+// Helper: genera giorni tra due date (con opzione weekend)
+function getWorkingDaysBetween(start: Date, end: Date, includeWeekend: boolean = false): string[] {
   const days: string[] = [];
   const current = new Date(start);
   while (current <= end) {
     const dayOfWeek = current.getDay();
-    if (dayOfWeek >= 1 && dayOfWeek <= 5) {
+    // Se includeWeekend: tutti i giorni. Altrimenti solo Lun-Ven
+    if (includeWeekend || (dayOfWeek >= 1 && dayOfWeek <= 5)) {
       days.push(current.toISOString().split('T')[0]);
     }
     current.setDate(current.getDate() + 1);
@@ -163,6 +164,7 @@ export default function Schedules() {
   const [driverAvailability, setDriverAvailability] = useState<Map<string, Set<string>>>(new Map());
   const [isMaxPreviewOpen, setIsMaxPreviewOpen] = useState(false);
   const [maxCapacityResult, setMaxCapacityResult] = useState<MaxCapacityResult | null>(null);
+  const [includeWeekend, setIncludeWeekend] = useState(false);
 
   const { data: schedules, isLoading } = useSchedules();
   const { data: trailers } = useTrailers(true); // Only active trailers
@@ -233,8 +235,8 @@ export default function Schedules() {
     const start = new Date(watchedStartDate);
     const end = new Date(watchedEndDate);
     if (isNaN(start.getTime()) || isNaN(end.getTime()) || start > end) return [];
-    return getWorkingDaysBetween(start, end);
-  }, [watchedStartDate, watchedEndDate]);
+    return getWorkingDaysBetween(start, end, includeWeekend);
+  }, [watchedStartDate, watchedEndDate, includeWeekend]);
 
   // Group working days by week for display
   const workingDaysByWeek = useMemo(() => groupDaysByWeek(workingDays), [workingDays]);
@@ -305,6 +307,7 @@ export default function Schedules() {
       requiredLiters: 0,
       notes: '',
     });
+    setIncludeWeekend(false);
     setIsDialogOpen(true);
   };
 
@@ -316,6 +319,7 @@ export default function Schedules() {
         endDate: new Date(data.endDate).toISOString(),
         initialStates: initialStates.length > 0 ? initialStates : undefined,
         vehicleStates: vehicleStates.length > 0 ? vehicleStates : undefined,
+        includeWeekend,
       };
       await createMutation.mutateAsync(payload);
       toast({ title: 'Pianificazione creata', variant: 'success' });
@@ -363,6 +367,7 @@ export default function Schedules() {
         endDate: new Date(formValues.endDate).toISOString(),
         initialStates: initialStates.length > 0 ? initialStates : undefined,
         driverAvailability: driverAvailabilityApi,
+        includeWeekend,
       });
       setMaxCapacityResult(result);
       setIsMaxPreviewOpen(true);
@@ -498,6 +503,20 @@ export default function Schedules() {
                       <p className="text-sm text-destructive">{errors.endDate.message}</p>
                     )}
                   </div>
+                </div>
+
+                <div className="flex items-center justify-between p-3 bg-muted/50 rounded-md">
+                  <div>
+                    <Label htmlFor="includeWeekend" className="font-medium">Includi weekend</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Abilita per periodi eccezionali con consegne sabato/domenica
+                    </p>
+                  </div>
+                  <Switch
+                    id="includeWeekend"
+                    checked={includeWeekend}
+                    onCheckedChange={setIncludeWeekend}
+                  />
                 </div>
 
                 <div>
@@ -730,7 +749,7 @@ export default function Schedules() {
                   {maxCapacityResult.maxLiters.toLocaleString()}L
                 </p>
                 <p className="text-sm text-muted-foreground mt-1">
-                  in {maxCapacityResult.workingDays} giorni lavorativi
+                  in {maxCapacityResult.workingDays} giorni{includeWeekend ? ' (weekend incluso)' : ' lavorativi'}
                 </p>
                 <p className="text-sm text-muted-foreground">
                   (~{maxCapacityResult.dailyCapacity.toLocaleString()}L/giorno)

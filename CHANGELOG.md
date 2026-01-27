@@ -4,6 +4,70 @@ Tutte le modifiche rilevanti al progetto Fuel Logistics Management System sarann
 
 Il formato segue [Keep a Changelog](https://keepachangelog.com/it/1.0.0/).
 
+## [1.9.0] - 2026-01-27
+
+### Aggiunto
+
+#### Frontend
+
+- **Toggle "Includi weekend"** (`src/pages/Schedules.tsx`)
+  - Nuovo switch per abilitare pianificazione anche nei giorni di sabato e domenica
+  - Posizionato sotto i campi data nel dialog di creazione pianificazione
+  - Descrizione: "Abilita per periodi eccezionali con consegne sabato/domenica"
+  - Default: disabilitato (solo Lun-Ven come prima)
+
+- **Griglia disponibilità autisti estesa**
+  - Quando il weekend è abilitato, la griglia mostra anche Sab e Dom
+  - Gestione disponibilità completa 7 giorni su 7 per periodi eccezionali
+
+- **Preview capacità massima migliorata**
+  - Mostra "(weekend incluso)" quando il toggle è attivo
+  - Calcolo corretto considera tutti i 7 giorni
+
+- **API Client** (`src/api/client.ts`)
+  - `CalculateMaxInput` esteso con campo opzionale `includeWeekend`
+
+#### Backend
+
+- **Schema Database** (`prisma/schema.prisma`)
+  - Nuovo campo `includeWeekend` (Boolean, default false) nel modello Schedule
+  - Permette di salvare la preferenza per ogni pianificazione
+
+- **Optimizer Service** (`src/services/optimizer.service.ts`)
+  - `CalculateMaxInput` esteso con campo `includeWeekend`
+  - `getWorkingDays()` ora accetta parametro `includeWeekend`
+  - L'optimizer considera tutti i giorni quando `includeWeekend` è true
+
+- **Validatore** (`src/utils/validators.ts`)
+  - `createScheduleSchema` accetta campo opzionale `includeWeekend`
+
+- **Controller** (`src/controllers/schedules.controller.ts`)
+  - `calculateMaxCapacityHandler` passa `includeWeekend` al servizio
+
+### Corretto
+
+- **Bug calcolo MAX ignorava weekend**: lo schedule temporaneo usato per il calcolo non passava `includeWeekend`, causando risultati identici con/senza weekend
+
+### Flusso Utente
+
+1. Apri dialog "Nuova Pianificazione"
+2. Seleziona date inizio/fine
+3. (Opzionale) Attiva toggle **"Includi weekend"** per periodi eccezionali
+4. La griglia disponibilità autisti mostra ora anche Sab e Dom
+5. Configura disponibilità autisti (es. alcuni disponibili nel weekend, altri no)
+6. Click **MAX** → calcolo considera tutti i giorni selezionati
+7. Crea pianificazione con flag `includeWeekend` salvato
+
+### Esempio
+
+| Scenario | Giorni | Risultato MAX |
+|----------|--------|---------------|
+| Settimana normale (Lun-Ven) | 5 | 367.500L |
+| Settimana con weekend | 7 | ~514.500L |
+| Solo weekend (Sab-Dom) | 2 | ~147.000L |
+
+---
+
 ## [1.8.0] - 2026-01-27
 
 ### Aggiunto

@@ -228,13 +228,14 @@ export async function deleteSchedule(req: Request, res: Response, next: NextFunc
 export async function calculateMaxCapacityHandler(req: Request, res: Response, next: NextFunction) {
   try {
     const prisma: PrismaClient = (req as any).prisma;
-    const { startDate, endDate, initialStates, driverAvailability } = req.body;
+    const { startDate, endDate, initialStates, driverAvailability, includeWeekend } = req.body;
 
     console.log('[calculateMax] Request:', {
       startDate,
       endDate,
       initialStates: initialStates?.length,
       driverAvailability: driverAvailability?.length,
+      includeWeekend,
     });
 
     if (!startDate || !endDate) {
@@ -246,6 +247,7 @@ export async function calculateMaxCapacityHandler(req: Request, res: Response, n
       endDate,
       initialStates,
       driverAvailability,
+      includeWeekend,
     });
 
     console.log('[calculateMax] Result:', result);
