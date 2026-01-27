@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Changed
+- **Calendario colorato per tipo viaggio**: i blocchi nel calendario ora hanno colori distinti per tipo
+  - Verde: Shuttle (Tirano ↔ Livigno)
+  - Blu: Supply (rifornimento Milano)
+  - Viola: Completo (giro completo)
+  - Arancione: Transfer (sversamento)
+  - Rosso: Annullato
+  - Legenda aggiornata di conseguenza
+
 ### Fixed
 - **Durate viaggi calcolate dinamicamente dal DB**: le durate SHUTTLE, SUPPLY, FULL_ROUND ora vengono calcolate dalle rotte nel database invece di essere hardcoded
   - Aggiunta funzione `getRouteDurations()` che legge le rotte dal DB
