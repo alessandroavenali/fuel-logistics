@@ -667,13 +667,13 @@ export default function Schedules() {
                         const state = vehicleStates.find(s => s.vehicleId === vehicle.id);
                         return (
                           <div key={vehicle.id} className="flex items-center gap-2 p-1.5 bg-muted/50 rounded-md">
-                            <div className="w-28">
+                            <div className="flex-1 min-w-0">
                               <span className="font-medium text-xs">{vehicle.name}</span>
                               <span className="text-[10px] text-muted-foreground ml-1">
                                 ({vehicle.plate})
                               </span>
                             </div>
-                            <div className="flex-1">
+                            <div className="w-24 shrink-0">
                               <Select
                                 value={state?.locationId || ''}
                                 onValueChange={(value) => updateVehicleState(vehicle.id, value)}
@@ -710,13 +710,13 @@ export default function Schedules() {
                         const state = initialStates.find(s => s.trailerId === trailer.id);
                         return (
                           <div key={trailer.id} className="flex items-center gap-2 p-1.5 bg-muted/50 rounded-md">
-                            <div className="w-28">
+                            <div className="flex-1 min-w-0">
                               <span className="font-medium text-xs">{trailer.name}</span>
                               <span className="text-[10px] text-muted-foreground ml-1">
                                 ({trailer.plate})
                               </span>
                             </div>
-                            <div className="flex-1">
+                            <div className="w-24 shrink-0">
                               <Select
                                 value={state?.locationId || ''}
                                 onValueChange={(value) => updateTrailerState(trailer.id, 'locationId', value)}
