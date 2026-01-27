@@ -102,7 +102,8 @@ interface AvailabilityTracker {
 
 export async function optimizeSchedule(
   prisma: PrismaClient,
-  scheduleId: string
+  scheduleId: string,
+  driverAvailability?: DriverAvailabilityInput[]
 ): Promise<OptimizationResult> {
   const warnings: string[] = [];
 
@@ -128,8 +129,14 @@ export async function optimizeSchedule(
       where: { isActive: true },
       include: { baseLocation: true },
     }),
-    prisma.vehicle.findMany({ where: { isActive: true } }),
-    prisma.trailer.findMany({ where: { isActive: true } }),
+    prisma.vehicle.findMany({
+      where: { isActive: true },
+      include: { baseLocation: true },
+    }),
+    prisma.trailer.findMany({
+      where: { isActive: true },
+      include: { baseLocation: true },
+    }),
     prisma.location.findMany({ where: { isActive: true } }),
   ]);
 
@@ -176,11 +183,12 @@ export async function optimizeSchedule(
     },
   };
 
-  // Initialize cistern state from schedule initial states or default to Tirano empty
+  // Initialize cistern state from schedule initial states or default based on baseLocation
   for (const trailer of trailers) {
     const initialState = schedule.initialStates.find(s => s.trailerId === trailer.id);
 
     if (initialState) {
+      // Usa lo stato iniziale esplicito dello schedule
       if (initialState.location.type === 'SOURCE') {
         // A Milano
         tracker.cisternState.atMilano.add(trailer.id);
@@ -200,8 +208,14 @@ export async function optimizeSchedule(
         }
       }
     } else {
-      // Default: cisterne a Tirano vuote
-      tracker.cisternState.atTiranoEmpty.add(trailer.id);
+      // Default: usa baseLocation della cisterna (vuota)
+      // Se ha base Livigno -> a Livigno vuota
+      // Altrimenti (Tirano o non specificata) -> a Tirano vuota
+      if (trailer.baseLocation?.type === 'DESTINATION') {
+        tracker.cisternState.atLivignoEmpty.add(trailer.id);
+      } else {
+        tracker.cisternState.atTiranoEmpty.add(trailer.id);
+      }
     }
   }
 
@@ -295,6 +309,14 @@ export async function optimizeSchedule(
       // Sort drivers by next available time (earliest first)
       const sortedDrivers = [...drivers]
         .filter(d => d.type !== 'EMERGENCY')
+        .filter(d => {
+          // Se non c'è disponibilità specificata, usa tutti i driver
+          if (!driverAvailability || driverAvailability.length === 0) return true;
+          const availability = driverAvailability.find(a => a.driverId === d.id);
+          // Se driver non in lista, non disponibile
+          if (!availability) return false;
+          return availability.availableDates.includes(dateKey);
+        })
         .map(d => ({ driver: d, state: driverState.get(d.id)! }))
         .filter(({ state }) => state.nextAvailable < endOfWorkDay)
         .sort((a, b) => a.state.nextAvailable.getTime() - b.state.nextAvailable.getTime());
@@ -741,6 +763,11 @@ export interface MaxCapacityResult {
   constraints: string[];
 }
 
+export interface DriverAvailabilityInput {
+  driverId: string;
+  availableDates: string[]; // Array di date YYYY-MM-DD
+}
+
 export interface CalculateMaxInput {
   startDate: string | Date;
   endDate: string | Date;
@@ -749,6 +776,7 @@ export interface CalculateMaxInput {
     locationId: string;
     isFull: boolean;
   }[];
+  driverAvailability?: DriverAvailabilityInput[];
 }
 
 export async function calculateMaxCapacity(
@@ -773,6 +801,18 @@ export async function calculateMaxCapacity(
     if (validInitialStates.length === 0) validInitialStates = undefined;
   }
 
+  // Valida driverAvailability se presente
+  let validDriverAvailability: typeof input.driverAvailability = undefined;
+  if (input.driverAvailability && input.driverAvailability.length > 0) {
+    const driverIds = await prisma.driver.findMany({ select: { id: true }, where: { isActive: true } });
+    const validDriverIds = new Set(driverIds.map(d => d.id));
+
+    validDriverAvailability = input.driverAvailability.filter(a =>
+      validDriverIds.has(a.driverId) && a.availableDates.length > 0
+    );
+    if (validDriverAvailability.length === 0) validDriverAvailability = undefined;
+  }
+
   // Crea schedule fittizio
   const tempSchedule = await prisma.schedule.create({
     data: {
@@ -793,8 +833,8 @@ export async function calculateMaxCapacity(
   });
 
   try {
-    // Usa l'optimizer reale
-    const result = await optimizeSchedule(prisma, tempSchedule.id);
+    // Usa l'optimizer reale con disponibilità driver
+    const result = await optimizeSchedule(prisma, tempSchedule.id, validDriverAvailability);
 
     // Conta solo i litri effettivamente consegnati (SHUTTLE)
     const shuttleTrips = result.trips.filter(t => t.tripType === 'SHUTTLE_LIVIGNO');

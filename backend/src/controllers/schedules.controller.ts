@@ -53,6 +53,12 @@ export async function getSchedule(req: Request, res: Response, next: NextFunctio
             location: true,
           },
         },
+        vehicleStates: {
+          include: {
+            vehicle: true,
+            location: true,
+          },
+        },
       },
     });
 
@@ -71,7 +77,7 @@ export async function createSchedule(req: Request, res: Response, next: NextFunc
     const prisma: PrismaClient = (req as any).prisma;
     const data = createScheduleSchema.parse(req.body);
 
-    const { initialStates, ...scheduleData } = data;
+    const { initialStates, vehicleStates, ...scheduleData } = data;
 
     const schedule = await prisma.schedule.create({
       data: {
@@ -87,11 +93,25 @@ export async function createSchedule(req: Request, res: Response, next: NextFunc
               })),
             }
           : undefined,
+        vehicleStates: vehicleStates
+          ? {
+              create: vehicleStates.map((state) => ({
+                vehicleId: state.vehicleId,
+                locationId: state.locationId,
+              })),
+            }
+          : undefined,
       },
       include: {
         initialStates: {
           include: {
             trailer: true,
+            location: true,
+          },
+        },
+        vehicleStates: {
+          include: {
+            vehicle: true,
             location: true,
           },
         },
@@ -110,7 +130,7 @@ export async function updateSchedule(req: Request, res: Response, next: NextFunc
     const { id } = req.params;
     const data = updateScheduleSchema.parse(req.body);
 
-    const { initialStates, ...scheduleData } = data;
+    const { initialStates, vehicleStates, ...scheduleData } = data;
 
     const schedule = await prisma.$transaction(async (tx) => {
       // Update schedule
@@ -143,6 +163,25 @@ export async function updateSchedule(req: Request, res: Response, next: NextFunc
         }
       }
 
+      // Update vehicle states if provided
+      if (vehicleStates) {
+        // Delete existing vehicle states
+        await tx.scheduleVehicleState.deleteMany({
+          where: { scheduleId: id },
+        });
+
+        // Create new vehicle states
+        if (vehicleStates.length > 0) {
+          await tx.scheduleVehicleState.createMany({
+            data: vehicleStates.map((state) => ({
+              scheduleId: id,
+              vehicleId: state.vehicleId,
+              locationId: state.locationId,
+            })),
+          });
+        }
+      }
+
       return updatedSchedule;
     });
 
@@ -153,6 +192,12 @@ export async function updateSchedule(req: Request, res: Response, next: NextFunc
         initialStates: {
           include: {
             trailer: true,
+            location: true,
+          },
+        },
+        vehicleStates: {
+          include: {
+            vehicle: true,
             location: true,
           },
         },
@@ -183,9 +228,14 @@ export async function deleteSchedule(req: Request, res: Response, next: NextFunc
 export async function calculateMaxCapacityHandler(req: Request, res: Response, next: NextFunction) {
   try {
     const prisma: PrismaClient = (req as any).prisma;
-    const { startDate, endDate, initialStates } = req.body;
+    const { startDate, endDate, initialStates, driverAvailability } = req.body;
 
-    console.log('[calculateMax] Request:', { startDate, endDate, initialStates: initialStates?.length });
+    console.log('[calculateMax] Request:', {
+      startDate,
+      endDate,
+      initialStates: initialStates?.length,
+      driverAvailability: driverAvailability?.length,
+    });
 
     if (!startDate || !endDate) {
       throw new AppError(400, 'startDate and endDate are required');
@@ -195,6 +245,7 @@ export async function calculateMaxCapacityHandler(req: Request, res: Response, n
       startDate,
       endDate,
       initialStates,
+      driverAvailability,
     });
 
     console.log('[calculateMax] Result:', result);

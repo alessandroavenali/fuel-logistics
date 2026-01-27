@@ -4,6 +4,82 @@ Tutte le modifiche rilevanti al progetto Fuel Logistics Management System sarann
 
 Il formato segue [Keep a Changelog](https://keepachangelog.com/it/1.0.0/).
 
+## [1.8.0] - 2026-01-27
+
+### Aggiunto
+
+#### Frontend
+
+- **Gestione Disponibilità Autisti** (`src/pages/Schedules.tsx`)
+  - Nuova sezione "Disponibilità Autisti" nel dialog creazione pianificazione
+  - Griglia checkbox per ogni giorno lavorativo, organizzata per settimana
+  - Default intelligente basato sul tipo autista:
+    - **RESIDENT (Dipendente)**: tutti i giorni selezionati
+    - **ON_CALL (A chiamata)**: nessun giorno selezionato
+    - **EMERGENCY (Emergenza)**: nessun giorno selezionato
+  - Pulsanti "Tutti" e "Nessuno" per selezione rapida per ogni autista
+  - Badge colorati per tipo autista (verde/giallo/rosso)
+  - Scroll area con max-height per gestire molti autisti
+  - Validazione: almeno un autista disponibile per almeno un giorno
+
+- **Componente Checkbox** (`src/components/ui/checkbox.tsx`)
+  - Nuovo componente checkbox accessibile con supporto `aria-checked`
+  - Stile coerente con il design system esistente
+
+- **Tipi TypeScript** (`src/types/index.ts`)
+  - `DriverDayAvailability`: disponibilità singolo giorno
+  - `DriverAvailabilityInput`: formato input API con array date
+
+- **API Client** (`src/api/client.ts`)
+  - `DriverAvailabilityInput`: interfaccia per payload
+  - `CalculateMaxInput` esteso con campo `driverAvailability`
+
+- **Helper Functions** (`src/pages/Schedules.tsx`)
+  - `getWorkingDaysBetween()`: genera giorni lavorativi (Lun-Ven) tra due date
+  - `getDefaultAvailability()`: inizializza disponibilità default per tipo driver
+  - `formatDayShort()`: formatta data come "Lun 3"
+  - `groupDaysByWeek()`: raggruppa giorni per settimana
+  - `getDriverTypeLabel()`: traduzione tipo driver (Dipendente/A chiamata/Emergenza)
+  - `getDriverTypeBadgeColor()`: colori badge per tipo
+
+#### Backend
+
+- **Optimizer Service** (`src/services/optimizer.service.ts`)
+  - Nuovo tipo `DriverAvailabilityInput` per disponibilità driver
+  - `CalculateMaxInput` esteso con campo opzionale `driverAvailability`
+  - `optimizeSchedule()` ora accetta parametro opzionale `driverAvailability`
+  - Filtro driver per giorno: solo driver disponibili in quella data vengono considerati
+  - `calculateMaxCapacity()` valida e passa disponibilità all'optimizer
+
+- **Controller** (`src/controllers/schedules.controller.ts`)
+  - `calculateMaxCapacityHandler` ora accetta `driverAvailability` nel body
+  - Log esteso per debug con conteggio driver disponibili
+
+### Flusso Utente
+
+1. Apri dialog "Nuova Pianificazione"
+2. Seleziona date inizio/fine → griglia disponibilità autisti appare
+3. Sistema inizializza disponibilità:
+   - Dipendenti: tutti i giorni lavorativi selezionati
+   - A chiamata/Emergenza: nessun giorno selezionato
+4. (Opzionale) Modifica disponibilità:
+   - Deseleziona giorni per autisti in malattia/ferie
+   - Seleziona giorni per attivare autisti a chiamata
+   - Usa "Tutti" / "Nessuno" per selezione rapida
+5. Click **MAX** → calcolo considera solo autisti disponibili per ogni giorno
+6. Risultato riflette la capacità reale con la forza lavoro configurata
+
+### Esempio
+
+| Scenario | Risultato MAX |
+|----------|---------------|
+| 3 dipendenti tutti disponibili | 367.500L (5 giorni) |
+| 1 dipendente in malattia mercoledì | ~330.000L |
+| Solo 1 dipendente disponibile | ~175.000L |
+| Aggiungi 1 a chiamata per 3 giorni | +52.500L |
+
+---
+
 ## [1.7.0] - 2026-01-26
 
 ### Migliorato

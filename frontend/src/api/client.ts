@@ -152,6 +152,11 @@ export interface MaxCapacityResult {
   constraints: string[];
 }
 
+export interface DriverAvailabilityInput {
+  driverId: string;
+  availableDates: string[]; // Array di date YYYY-MM-DD
+}
+
 export interface CalculateMaxInput {
   startDate: string;
   endDate: string;
@@ -160,6 +165,7 @@ export interface CalculateMaxInput {
     locationId: string;
     isFull: boolean;
   }[];
+  driverAvailability?: DriverAvailabilityInput[];
 }
 
 export const schedulesApi = {

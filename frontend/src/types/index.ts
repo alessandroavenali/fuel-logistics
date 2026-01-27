@@ -23,6 +23,8 @@ export interface Vehicle {
   plate: string;
   name?: string;
   maxTrailers: number;
+  baseLocationId?: string;
+  baseLocation?: Location;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -33,6 +35,8 @@ export interface Trailer {
   plate: string;
   name?: string;
   capacityLiters: number;
+  baseLocationId?: string;
+  baseLocation?: Location;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -81,6 +85,7 @@ export interface Schedule {
   updatedAt: string;
   trips?: Trip[];
   initialStates?: ScheduleInitialState[];
+  vehicleStates?: ScheduleVehicleState[];
   _count?: {
     trips: number;
   };
@@ -94,6 +99,16 @@ export interface ScheduleInitialState {
   isFull: boolean;
   createdAt: string;
   trailer?: Trailer;
+  location?: Location;
+}
+
+export interface ScheduleVehicleState {
+  id: string;
+  scheduleId: string;
+  vehicleId: string;
+  locationId: string;
+  createdAt: string;
+  vehicle?: Vehicle;
   location?: Location;
 }
 
@@ -197,6 +212,10 @@ export interface CreateScheduleInput {
     trailerId: string;
     locationId: string;
     isFull: boolean;
+  }[];
+  vehicleStates?: {
+    vehicleId: string;
+    locationId: string;
   }[];
 }
 
@@ -375,4 +394,16 @@ export interface DriverAvailability {
     vehiclePlate: string;
     trailers: { plate: string; liters: number }[];
   }[];
+}
+
+// Disponibilità driver per giorno (per pianificazione)
+export interface DriverDayAvailability {
+  driverId: string;
+  date: string; // YYYY-MM-DD
+}
+
+// Input per calcolo MAX e creazione schedule
+export interface DriverAvailabilityInput {
+  driverId: string;
+  availableDates: string[]; // Array di date YYYY-MM-DD
 }
