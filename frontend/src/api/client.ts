@@ -148,6 +148,7 @@ export interface MaxCapacityResult {
     tiranoDriverShuttles: number;
     tiranoDriverFullRounds: number;
     supplyTrips: number;
+    transferTrips: number;  // Sversamenti rimorchio → cisterna integrata
   };
   dailyCapacity: number; // maxLiters / daysWithDeliveries
   constraints: string[];
@@ -165,6 +166,11 @@ export interface CalculateMaxInput {
     trailerId: string;
     locationId: string;
     isFull: boolean;
+  }[];
+  vehicleStates?: {
+    vehicleId: string;
+    locationId: string;
+    isTankFull: boolean;
   }[];
   driverAvailability?: DriverAvailabilityInput[];
   includeWeekend?: boolean;

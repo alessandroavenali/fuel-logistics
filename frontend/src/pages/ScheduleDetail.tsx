@@ -61,7 +61,7 @@ import {
   getStatusColor,
   getDriverTypeLabel,
 } from '@/lib/utils';
-import type { Trip, Location, ValidationResult, TrailerStatus, VehicleStatus, DriverAvailability, Route, ScheduleInitialState, TripType } from '@/types';
+import type { Trip, Location, ValidationResult, TrailerStatus, VehicleStatus, DriverAvailability, Route, ScheduleInitialState, ScheduleVehicleState, TripType } from '@/types';
 
 // Helper per badge tipo viaggio
 const getTripTypeBadge = (type: TripType) => {
@@ -603,14 +603,16 @@ export default function ScheduleDetail() {
   if (isLoading) return <p>Caricamento...</p>;
   if (!schedule) return <p>Pianificazione non trovata</p>;
 
+  // Conta solo i viaggi che effettivamente consegnano carburante a Livigno
+  // SUPPLY_MILANO e TRANSFER_TIRANO sono operazioni intermedie di logistica
   const totalLitersPlanned = schedule.trips?.reduce(
     (sum: number, trip: Trip) => {
-      // FULL_ROUND e SHUTTLE usano cisterna integrata (17.500L)
+      // Solo FULL_ROUND e SHUTTLE_LIVIGNO consegnano a Livigno
       if (trip.tripType === 'FULL_ROUND' || trip.tripType === 'SHUTTLE_LIVIGNO') {
         return sum + 17500;
       }
-      // Altri tipi usano i litri dai rimorchi
-      return sum + (trip.trailers?.reduce((ts: number, t: any) => ts + t.litersLoaded, 0) || 0);
+      // SUPPLY_MILANO e TRANSFER_TIRANO non consegnano, sono operazioni di rifornimento
+      return sum;
     },
     0
   );
@@ -700,13 +702,13 @@ export default function ScheduleDetail() {
         </Card>
       </div>
 
-      {/* Initial States - Only show if there are initial states */}
+      {/* Initial States - Trailers */}
       {schedule.initialStates && schedule.initialStates.length > 0 && (
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-medium flex items-center gap-2">
               <Container className="h-4 w-4" />
-              Condizioni Iniziali Cisterne
+              Condizioni Iniziali Cisterne (Rimorchi)
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -728,6 +730,43 @@ export default function ScheduleDetail() {
                       className={`text-xs ${state.isFull ? 'bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300' : 'bg-gray-50 text-gray-600 dark:bg-gray-800 dark:text-gray-400'}`}
                     >
                       {state.isFull ? 'Piena' : 'Vuota'}
+                    </Badge>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Initial States - Vehicle Tanks (Motrici) */}
+      {schedule.vehicleStates && schedule.vehicleStates.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <Truck className="h-4 w-4" />
+              Condizioni Iniziali Motrici (Cisterna Integrata)
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3">
+              {schedule.vehicleStates.map((state: ScheduleVehicleState) => (
+                <div key={state.id} className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
+                  <div className="flex items-center gap-2">
+                    <Truck className="h-4 w-4 text-muted-foreground" />
+                    <span className="font-medium text-sm">
+                      {state.vehicle?.name || state.vehicle?.plate || 'N/A'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline" className="text-xs">
+                      {state.location?.name || 'N/A'}
+                    </Badge>
+                    <Badge
+                      variant="outline"
+                      className={`text-xs ${state.isTankFull ? 'bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300' : 'bg-gray-50 text-gray-600 dark:bg-gray-800 dark:text-gray-400'}`}
+                    >
+                      {state.isTankFull ? 'Piena' : 'Vuota'}
                     </Badge>
                   </div>
                 </div>

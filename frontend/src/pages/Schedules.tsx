@@ -57,6 +57,7 @@ interface TrailerInitialState {
 interface VehicleInitialState {
   vehicleId: string;
   locationId: string;
+  isTankFull: boolean;
 }
 
 // Helper: genera giorni tra due date (con opzione weekend)
@@ -193,6 +194,7 @@ export default function Schedules() {
       const defaultVehicleStates: VehicleInitialState[] = vehicles.map((vehicle: Vehicle) => ({
         vehicleId: vehicle.id,
         locationId: vehicle.baseLocationId || parkingLocation.id,
+        isTankFull: false, // Default: cisterna integrata vuota
       }));
       setVehicleStates(defaultVehicleStates);
     }
@@ -206,10 +208,12 @@ export default function Schedules() {
     setMaxCapacityResult(null);
   };
 
-  const updateVehicleState = (vehicleId: string, locationId: string) => {
+  const updateVehicleState = (vehicleId: string, field: 'locationId' | 'isTankFull', value: string | boolean) => {
     setVehicleStates(prev => prev.map(state =>
-      state.vehicleId === vehicleId ? { ...state, locationId } : state
+      state.vehicleId === vehicleId ? { ...state, [field]: value } : state
     ));
+    // Invalida il risultato MAX perché lo stato iniziale è cambiato
+    setMaxCapacityResult(null);
   };
 
   const {
@@ -379,6 +383,7 @@ export default function Schedules() {
         startDate: new Date(formValues.startDate).toISOString(),
         endDate: new Date(formValues.endDate).toISOString(),
         initialStates: initialStates.length > 0 ? initialStates : undefined,
+        vehicleStates: vehicleStates.length > 0 ? vehicleStates : undefined,
         driverAvailability: driverAvailabilityApi,
         includeWeekend,
       });
@@ -676,7 +681,7 @@ export default function Schedules() {
                             <div className="w-24 shrink-0">
                               <Select
                                 value={state?.locationId || ''}
-                                onValueChange={(value) => updateVehicleState(vehicle.id, value)}
+                                onValueChange={(value) => updateVehicleState(vehicle.id, 'locationId', value)}
                               >
                                 <SelectTrigger className="h-7 text-xs">
                                   <SelectValue placeholder="Posizione" />
@@ -689,6 +694,16 @@ export default function Schedules() {
                                   ))}
                                 </SelectContent>
                               </Select>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <span className="text-[10px] text-muted-foreground w-10">
+                                {state?.isTankFull ? 'Piena' : 'Vuota'}
+                              </span>
+                              <Switch
+                                id={`tank-${vehicle.id}`}
+                                checked={state?.isTankFull || false}
+                                onCheckedChange={(checked) => updateVehicleState(vehicle.id, 'isTankFull', checked)}
+                              />
                             </div>
                           </div>
                         );

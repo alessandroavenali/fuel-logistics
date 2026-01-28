@@ -3,7 +3,7 @@ export type LocationType = 'SOURCE' | 'DESTINATION' | 'PARKING';
 export type DriverType = 'RESIDENT' | 'ON_CALL' | 'EMERGENCY';
 export type ScheduleStatus = 'DRAFT' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED';
 export type TripStatus = 'PLANNED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
-export type TripType = 'SHUTTLE_LIVIGNO' | 'SUPPLY_MILANO' | 'FULL_ROUND';
+export type TripType = 'SHUTTLE_LIVIGNO' | 'SUPPLY_MILANO' | 'FULL_ROUND' | 'TRANSFER_TIRANO';
 
 // Models
 export interface Location {
@@ -23,6 +23,7 @@ export interface Vehicle {
   plate: string;
   name?: string;
   maxTrailers: number;
+  integratedTankLiters: number;  // Cisterna integrata (non staccabile)
   baseLocationId?: string;
   baseLocation?: Location;
   isActive: boolean;
@@ -107,6 +108,7 @@ export interface ScheduleVehicleState {
   scheduleId: string;
   vehicleId: string;
   locationId: string;
+  isTankFull: boolean;  // Stato cisterna integrata (piena/vuota)
   createdAt: string;
   vehicle?: Vehicle;
   location?: Location;
@@ -169,6 +171,7 @@ export interface CreateVehicleInput {
   plate: string;
   name?: string;
   maxTrailers?: number;
+  integratedTankLiters?: number;
   isActive?: boolean;
 }
 
@@ -216,6 +219,7 @@ export interface CreateScheduleInput {
   vehicleStates?: {
     vehicleId: string;
     locationId: string;
+    isTankFull?: boolean;  // Stato cisterna integrata (piena/vuota)
   }[];
 }
 
@@ -340,6 +344,7 @@ export interface VehicleStatus {
   plate: string;
   name: string | null;
   maxTrailers: number;
+  integratedTankLiters: number;  // Cisterna integrata
   isActive: boolean;
   status: 'AVAILABLE' | 'IN_USE';
   currentTrip: {

@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Added
+- **Stato iniziale cisterne integrate motrici**: l'optimizer ora considera le motrici che partono già piene
+  - Nuovo campo `isTankFull` in `vehicleStates` per ogni motrice
+  - UI nel frontend per impostare lo stato iniziale (switch Piena/Vuota per ogni motrice)
+  - `calculateGlobalMaxV2()` inizializza `fullTanks` dallo stato iniziale invece di assumere sempre 0
+  - Se una motrice parte piena a Tirano, il primo SHUTTLE non richiede TRANSFER precedente
+  - Visualizzazione stato iniziale motrici nella pagina dettaglio schedule
+- **Stato iniziale rimorchi nel calcolo MAX**: `calculateMaxCapacity` ora considera anche i rimorchi pieni iniziali
+  - I rimorchi pieni a Tirano sono disponibili per TRANSFER immediato
+
+### Fixed
+- **Driver Livigno non possono fare TRANSFER**: aggiunto controllo `&& !isLivignoDriver` alla condizione TRANSFER (linea 607) - i driver Livigno non sono fisicamente a Tirano
+
 ### Changed
 - **Calendario colorato per tipo viaggio**: i blocchi nel calendario ora hanno colori distinti per tipo
   - Verde: Shuttle (Tirano ↔ Livigno)

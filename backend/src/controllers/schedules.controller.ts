@@ -98,6 +98,7 @@ export async function createSchedule(req: Request, res: Response, next: NextFunc
               create: vehicleStates.map((state) => ({
                 vehicleId: state.vehicleId,
                 locationId: state.locationId,
+                isTankFull: state.isTankFull ?? false,
               })),
             }
           : undefined,
@@ -177,6 +178,7 @@ export async function updateSchedule(req: Request, res: Response, next: NextFunc
               scheduleId: id,
               vehicleId: state.vehicleId,
               locationId: state.locationId,
+              isTankFull: state.isTankFull ?? false,
             })),
           });
         }
@@ -228,12 +230,13 @@ export async function deleteSchedule(req: Request, res: Response, next: NextFunc
 export async function calculateMaxCapacityHandler(req: Request, res: Response, next: NextFunction) {
   try {
     const prisma: PrismaClient = (req as any).prisma;
-    const { startDate, endDate, initialStates, driverAvailability, includeWeekend } = req.body;
+    const { startDate, endDate, initialStates, vehicleStates, driverAvailability, includeWeekend } = req.body;
 
     console.log('[calculateMax] Request:', {
       startDate,
       endDate,
       initialStates: initialStates?.length,
+      vehicleStates: vehicleStates?.length,
       driverAvailability: driverAvailability?.length,
       includeWeekend,
     });
@@ -246,6 +249,7 @@ export async function calculateMaxCapacityHandler(req: Request, res: Response, n
       startDate,
       endDate,
       initialStates,
+      vehicleStates,
       driverAvailability,
       includeWeekend,
     });

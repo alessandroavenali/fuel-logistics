@@ -604,7 +604,8 @@ export async function optimizeSchedule(
           tripType = 'SHUTTLE_LIVIGNO';
           tripDurationMinutes = TRIP_DURATIONS.SHUTTLE_LIVIGNO;
         }
-        else if (vehiclesWithEmptyTankAtTirano >= 1 && fullTrailersAvailable >= 1 && canDoTransfer) {
+        else if (vehiclesWithEmptyTankAtTirano >= 1 && fullTrailersAvailable >= 1 && canDoTransfer && !isLivignoDriver) {
+          // Driver Livigno non possono fare TRANSFER (parte da Tirano)
           tripType = 'TRANSFER_TIRANO';
           tripDurationMinutes = TRIP_DURATIONS.TRANSFER_TIRANO;
         }
@@ -1091,6 +1092,11 @@ export interface CalculateMaxInput {
     locationId: string;
     isFull: boolean;
   }[];
+  vehicleStates?: {
+    vehicleId: string;
+    locationId: string;
+    isTankFull: boolean;
+  }[];
   driverAvailability?: DriverAvailabilityInput[];
   includeWeekend?: boolean;
 }
@@ -1223,6 +1229,30 @@ export async function calculateMaxCapacity(
     return { tirano: tiranoPerDay, livigno: livignoPerDay };
   };
 
+  // Calcola stato iniziale motrici da vehicleStates
+  // Le motrici a Tirano con isTankFull=true sono risorse disponibili immediatamente
+  let initialFullTanks = 0;
+  if (input.vehicleStates && input.vehicleStates.length > 0) {
+    for (const vs of input.vehicleStates) {
+      // Conta solo motrici piene a Tirano (non a Livigno)
+      if (vs.isTankFull && vs.locationId === tiranoLocation.id) {
+        initialFullTanks++;
+      }
+    }
+  }
+
+  // Calcola stato iniziale rimorchi da initialStates
+  // I rimorchi pieni a Tirano sono disponibili per TRANSFER immediatamente
+  let initialFullTrailers = 0;
+  if (input.initialStates && input.initialStates.length > 0) {
+    for (const ts of input.initialStates) {
+      // Conta solo rimorchi pieni a Tirano
+      if (ts.isFull && ts.locationId === tiranoLocation.id) {
+        initialFullTrailers++;
+      }
+    }
+  }
+
   // Algoritmo di ottimizzazione globale V2 con tracciamento ore driver individuali
   // Supporta driver Tirano (SUPPLY, TRANSFER, SHUTTLE, FULL_ROUND) e Livigno (SHUTTLE + SUPPLY con eccezione ADR)
   const calculateGlobalMaxV2 = (driversData: {
@@ -1251,10 +1281,11 @@ export async function calculateMaxCapacity(
     }
 
     // Stato risorse (condivise tra tutti i driver)
-    let fullTrailers = 0;
-    let emptyTrailers = numTrailers;
-    let fullTanks = 0;
-    let emptyTanks = numVehicles;
+    // Inizializza con stato iniziale: motrici e rimorchi già pieni a Tirano sono disponibili subito
+    let fullTrailers = initialFullTrailers;
+    let emptyTrailers = numTrailers - initialFullTrailers;
+    let fullTanks = initialFullTanks;
+    let emptyTanks = numVehicles - initialFullTanks;
 
     // Contatori totali
     let totalLiters = 0;
