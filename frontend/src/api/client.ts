@@ -161,6 +161,7 @@ export interface MaxCapacityResult {
 export interface DriverAvailabilityInput {
   driverId: string;
   availableDates: string[]; // Array di date YYYY-MM-DD
+  initialAdrExceptions?: number;  // 0, 1 o 2
 }
 
 export interface CalculateMaxInput {
@@ -188,7 +189,11 @@ export const schedulesApi = {
   update: (id: string, data: any) =>
     request<any>(`/schedules/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   delete: (id: string) => request<void>(`/schedules/${id}`, { method: 'DELETE' }),
-  optimize: (id: string) => request<any>(`/schedules/${id}/optimize`, { method: 'POST' }),
+  optimize: (id: string, driverAvailability?: DriverAvailabilityInput[]) =>
+    request<any>(`/schedules/${id}/optimize`, {
+      method: 'POST',
+      body: JSON.stringify({ driverAvailability })
+    }),
   confirm: (id: string) => request<any>(`/schedules/${id}/confirm`, { method: 'PUT' }),
   validate: (id: string) => request<any>(`/schedules/${id}/validate`, { method: 'POST' }),
   calculateMax: (data: CalculateMaxInput) =>

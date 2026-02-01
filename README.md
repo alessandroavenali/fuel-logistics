@@ -182,6 +182,14 @@ L'algoritmo utilizza automaticamente le eccezioni ADR (max 2/settimana per drive
 - Reset automatico ogni 5 giorni lavorativi
 - Visualizzazione nel frontend con badge amber
 
+### Stato Iniziale Eccezioni
+
+Prima di lanciare l'ottimizzazione, l'operatore puo specificare quante eccezioni ADR ogni driver ha gia usato nella settimana corrente:
+
+1. Cliccare "Genera Turni" nella pagina Schedule
+2. Nel dialog, impostare il numero di eccezioni gia usate (0, 1 o 2) per ogni driver
+3. L'algoritmo rispettera i limiti rimanenti
+
 ---
 
 ## ⚠️ Limitazioni Algoritmo Attuale

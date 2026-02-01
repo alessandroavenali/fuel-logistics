@@ -427,7 +427,13 @@ export async function optimizeSchedule(
 
       // Check how many extended days this driver has used this week
       const weekKey = `${d.id}-${weekNum}`;
-      const extendedDays = tracker.driverHoursByWeek.get(`${weekKey}-extended`) || 0;
+
+      // Trova initialAdrExceptions per questo driver se fornito
+      const driverInput = driverAvailability?.find(da => da.driverId === d.id);
+      const initialExceptions = driverInput?.initialAdrExceptions ?? 0;
+
+      // Usa valore iniziale fornito + eventuali eccezioni già tracciate in questa ottimizzazione
+      const extendedDays = initialExceptions + (tracker.driverHoursByWeek.get(`${weekKey}-extended`) || 0);
 
       driverState.set(d.id, {
         nextAvailable: startOfDay,
@@ -1446,6 +1452,7 @@ export interface MaxCapacityResult {
 export interface DriverAvailabilityInput {
   driverId: string;
   availableDates: string[]; // Array di date YYYY-MM-DD
+  initialAdrExceptions?: number;  // 0, 1 o 2
 }
 
 export interface CalculateMaxInput {

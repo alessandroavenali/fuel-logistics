@@ -17,6 +17,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -30,7 +31,7 @@ import {
   useUpdateTrip,
   useDeleteTrip,
 } from '@/hooks/useSchedules';
-import { useDriversAvailability } from '@/hooks/useDrivers';
+import { useDrivers, useDriversAvailability } from '@/hooks/useDrivers';
 import { useVehiclesStatus } from '@/hooks/useVehicles';
 import { useTrailersStatus } from '@/hooks/useTrailers';
 import { useLocations } from '@/hooks/useLocations';
@@ -111,8 +112,11 @@ export default function ScheduleDetail() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isNewTrip, setIsNewTrip] = useState(false);
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
+  const [showAdrDialog, setShowAdrDialog] = useState(false);
+  const [adrExceptions, setAdrExceptions] = useState<Record<string, number>>({});
 
   const { data: schedule, isLoading } = useSchedule(id!);
+  const { data: drivers } = useDrivers({ isActive: true });
   const { data: driversAvailability } = useDriversAvailability({ scheduleId: id });
   const { data: vehiclesStatus } = useVehiclesStatus({ scheduleId: id });
   const { data: trailersStatus } = useTrailersStatus(id);
@@ -615,9 +619,26 @@ export default function ScheduleDetail() {
     }));
   }, [driversAvailability]);
 
-  const handleOptimize = async () => {
+  const handleOptimize = () => {
+    setShowAdrDialog(true);  // Mostra dialog invece di ottimizzare subito
+  };
+
+  const handleOptimizeWithAdr = async () => {
+    setShowAdrDialog(false);
     try {
-      const result = await optimizeMutation.mutateAsync(id!);
+      // Costruisci driverAvailability con eccezioni iniziali
+      const driverAvailability = Object.entries(adrExceptions)
+        .filter(([_, count]) => count > 0)
+        .map(([driverId, count]) => ({
+          driverId,
+          availableDates: [],
+          initialAdrExceptions: count,
+        }));
+
+      const result = await optimizeMutation.mutateAsync({
+        id: id!,
+        driverAvailability: driverAvailability.length > 0 ? driverAvailability : undefined
+      });
       toast({
         title: 'Ottimizzazione completata',
         description: `Generati ${result.statistics.totalTrips} viaggi per ${formatLiters(result.statistics.totalLiters)}`,
@@ -1587,6 +1608,61 @@ export default function ScheduleDetail() {
                 {isNewTrip ? 'Crea' : 'Salva'}
               </Button>
             )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ADR Exceptions Dialog */}
+      <Dialog open={showAdrDialog} onOpenChange={setShowAdrDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Stato Eccezioni ADR</DialogTitle>
+            <DialogDescription>
+              Indica quante eccezioni ADR (giorni &gt;9h) ogni driver ha già usato questa settimana.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 max-h-[400px] overflow-y-auto">
+            {drivers?.filter((d: any) => d.isActive).map((driver: any) => (
+              <div key={driver.id} className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span>{driver.name}</span>
+                  <Badge variant="outline">{getDriverTypeLabel(driver.type)}</Badge>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setAdrExceptions(prev => ({
+                      ...prev,
+                      [driver.id]: Math.max(0, (prev[driver.id] || 0) - 1)
+                    }))}
+                    disabled={(adrExceptions[driver.id] || 0) === 0}
+                  >
+                    -
+                  </Button>
+                  <span className="w-4 text-center">{adrExceptions[driver.id] || 0}</span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setAdrExceptions(prev => ({
+                      ...prev,
+                      [driver.id]: Math.min(2, (prev[driver.id] || 0) + 1)
+                    }))}
+                    disabled={(adrExceptions[driver.id] || 0) === 2}
+                  >
+                    +
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAdrDialog(false)}>
+              Annulla
+            </Button>
+            <Button onClick={handleOptimizeWithAdr}>
+              Genera Turni
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

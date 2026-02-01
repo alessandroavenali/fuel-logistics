@@ -2,6 +2,51 @@
 
 ## [Unreleased]
 
+### Added - Stato Iniziale Eccezioni ADR per Driver (2026-02-01)
+
+Aggiunta la possibilità di specificare quante eccezioni ADR ogni driver ha già usato nella settimana corrente, prima di lanciare l'ottimizzazione.
+
+#### Nuova UI
+
+Quando l'operatore clicca "Genera Turni", appare un dialog che mostra:
+- Lista di tutti i driver attivi
+- Per ogni driver, un contatore +/- per specificare le eccezioni già usate (0, 1 o 2)
+
+#### Modifiche Backend
+
+**`optimizer.service.ts`**:
+- Estesa `DriverAvailabilityInput` con campo opzionale `initialAdrExceptions: number`
+- La logica di inizializzazione di `extendedDaysThisWeek` ora somma:
+  - Le eccezioni iniziali fornite dall'operatore
+  - Le eccezioni già tracciate durante l'ottimizzazione corrente
+
+#### Modifiche Frontend
+
+**`types/index.ts`** e **`api/client.ts`**:
+- Aggiunto `initialAdrExceptions?: number` a `DriverAvailabilityInput`
+
+**`hooks/useSchedules.ts`**:
+- `useOptimizeSchedule` ora accetta un oggetto `{ id, driverAvailability }` invece di solo `id`
+
+**`api/client.ts`**:
+- `schedulesApi.optimize()` ora accetta `driverAvailability` opzionale nel body
+
+**`pages/ScheduleDetail.tsx`**:
+- Nuovo state `showAdrDialog` e `adrExceptions`
+- Dialog con lista driver e contatori per eccezioni ADR
+- `handleOptimize` mostra il dialog invece di ottimizzare subito
+- `handleOptimizeWithAdr` costruisce i parametri e lancia l'ottimizzazione
+
+#### Utilizzo
+
+1. Aprire una schedule esistente in stato DRAFT
+2. Cliccare "Genera Turni"
+3. Nel dialog, impostare per ogni driver quante eccezioni ha già usato questa settimana
+4. Cliccare "Genera Turni" per confermare
+5. L'algoritmo rispetterà i limiti (max 2 eccezioni/settimana meno quelle già usate)
+
+---
+
 ### Added - Viaggi Driver Livigno con Motrice Dedicata
 
 Implementati due nuovi tipi di viaggio per driver di Livigno che hanno una motrice dedicata che **resta a Livigno** dopo ogni viaggio.

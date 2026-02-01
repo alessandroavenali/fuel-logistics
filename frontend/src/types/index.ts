@@ -414,4 +414,5 @@ export interface DriverDayAvailability {
 export interface DriverAvailabilityInput {
   driverId: string;
   availableDates: string[]; // Array di date YYYY-MM-DD
+  initialAdrExceptions?: number;  // 0, 1 o 2
 }

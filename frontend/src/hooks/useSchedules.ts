@@ -55,8 +55,11 @@ export function useOptimizeSchedule() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (id: string) => schedulesApi.optimize(id),
-    onSuccess: (_, id) => {
+    mutationFn: ({ id, driverAvailability }: {
+      id: string;
+      driverAvailability?: import('@/api/client').DriverAvailabilityInput[]
+    }) => schedulesApi.optimize(id, driverAvailability),
+    onSuccess: (_, { id }) => {
       queryClient.invalidateQueries({ queryKey: ['schedules', id] });
       // Invalidate resource status queries
       queryClient.invalidateQueries({ queryKey: ['trailers', 'status'] });
