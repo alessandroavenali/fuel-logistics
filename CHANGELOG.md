@@ -134,3 +134,47 @@ I driver in eccesso aspettano il momento esatto in cui il primo rimorchio divent
 | 12:30 | ... | SHUTTLE #2 | SUPPLY finito |
 
 **Risultato**: Paolo fa SUPPLY alle 06:30 (appena il rimorchio di Luca diventa vuoto), preparando risorse per il giorno dopo.
+
+### Fixed - Bug SUPPLY_FROM_LIVIGNO (2026-02-01)
+
+#### Problema
+`SUPPLY_FROM_LIVIGNO` non veniva mai eseguito in `calculateMaxCapacity`.
+
+#### Causa
+Condizione errata: `hoursLeft >= HOURS_SUPPLY_FROM_LIVIGNO` (10h)
+Ma i driver hanno `MAX_DAILY_HOURS = 9h`, quindi la condizione era sempre FALSE.
+
+#### Fix
+Cambiato in: `hoursLeft >= MAX_DAILY_HOURS` (9h)
+L'eccezione ADR estende automaticamente a 10h quando necessario.
+
+### Added - Test Suite Ottimizzazione (2026-02-01)
+
+Creati test completi per verificare `calculateMaxCapacity` e `optimizeSchedule`:
+
+```
+backend/src/tests/
+├── optimizer-allocation.test.ts  # 7 scenari
+└── optimizer-trips.test.ts       # Generazione trip
+```
+
+#### Scenari Testati
+
+| # | Scenario | MAX Atteso | Verifica |
+|---|----------|------------|----------|
+| 1 | Baseline (3 RESIDENT, 4 pieni) | 70.000L | ✅ |
+| 2 | Più driver che rimorchi | 35.000L | ✅ |
+| 3 | Solo driver Tirano | 70.000L | ✅ |
+| 4 | Multi-giorno carry-over | 157.500L | ✅ |
+| 5 | ON_CALL parziale | 87.500L | ✅ |
+| 6 | 0 rimorchi pieni | 17.500L | ✅ |
+| 7 | Limite motrici Livigno | 70.000L | ✅ |
+
+### Documented - Limitazioni Algoritmo
+
+Documentate nel README le limitazioni note dell'algoritmo:
+
+1. **FULL_ROUND non eseguibile**: richiede 9.5h ma ADR limit è 9h
+2. **No combo SUPPLY+SHUTTLE**: 6h + 4h = 10h supera limite
+3. **Eccezione ADR solo per Livigno**: non implementata per FULL_ROUND o combo Tirano
+4. **No chaining intra-giornaliero**: tracking risorse a fine giornata

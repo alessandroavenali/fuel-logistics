@@ -1821,8 +1821,10 @@ export async function calculateMaxCapacity(
               break;
             }
             // SUPPLY_FROM_LIVIGNO: se non ci sono rimorchi pieni, usa vuoti (10h, eccezione ADR)
+            // NOTA: richiede eccezione ADR (max 2/settimana), quindi il driver deve avere
+            // tutte le 9h disponibili (l'eccezione estende a 10h)
             const usedExceptions = livignoAdrExceptions.get(driverId) || 0;
-            if (emptyTrailers > 0 && hoursLeft >= HOURS_SUPPLY_FROM_LIVIGNO && usedExceptions < MAX_ADR_EXTENDED_PER_WEEK) {
+            if (emptyTrailers > 0 && hoursLeft >= MAX_DAILY_HOURS && usedExceptions < MAX_ADR_EXTENDED_PER_WEEK) {
               emptyTrailers--;
               pendingFullTrailers++;  // Rimorchio torna pieno a Tirano
               // Motrice resta a Livigno
