@@ -1161,10 +1161,21 @@ export async function optimizeSchedule(
     }
   }
 
-  const totalLiters = generatedTrips.reduce(
-    (sum, trip) => sum + trip.trailers.reduce((tSum, t) => tSum + t.litersLoaded, 0),
-    0
-  );
+  // Calcola litri effettivamente consegnati a Livigno (non litri movimentati)
+  const totalLitersDelivered = generatedTrips.reduce((sum, trip) => {
+    // Solo questi tipi consegnano effettivamente a Livigno
+    const deliveryTypes: TripType[] = [
+      'SHUTTLE_LIVIGNO',
+      'FULL_ROUND',
+      'SHUTTLE_FROM_LIVIGNO',
+      'SUPPLY_FROM_LIVIGNO',
+    ];
+    if (deliveryTypes.includes(trip.tripType)) {
+      return sum + TRIP_LITERS[trip.tripType];
+    }
+    // SUPPLY_MILANO e TRANSFER_TIRANO non consegnano a Livigno
+    return sum;
+  }, 0);
 
   const trailersAtParking = tracker.trailerState.atTiranoFull.size + tracker.trailerState.atTiranoEmpty.size;
 
@@ -1174,7 +1185,7 @@ export async function optimizeSchedule(
     warnings,
     statistics: {
       totalTrips: generatedTrips.length,
-      totalLiters,
+      totalLiters: totalLitersDelivered,
       totalDrivingHours: generatedTrips.reduce((sum, t) => {
         const hours = (t.returnTime.getTime() - t.departureTime.getTime()) / (1000 * 60 * 60);
         return sum + hours;
