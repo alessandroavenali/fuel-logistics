@@ -12,6 +12,9 @@ const HOURS = {
   TRANSFER: 0.5,
   SHUTTLE: 4.5,
   FULL_ROUND: 9,
+  // Nuovi tipi per driver Livigno con motrice dedicata che resta a Livigno
+  SHUTTLE_FROM_LIVIGNO: 4.5,   // Livigno→Tirano→(transfer)→Livigno: 90+30+120+30=270min
+  SUPPLY_FROM_LIVIGNO: 10,    // Livigno→Tirano→Milano→Tirano→Livigno: 600min (eccezione ADR)
 };
 
 const LITERS_PER_TANK = 17500;
@@ -50,6 +53,9 @@ interface GlobalResult {
     fullRoundTrips: number;
     livignoShuttles: number;
     livignoSupplyTrips: number;
+    // Nuovi contatori per driver Livigno con motrice dedicata
+    shuttleFromLivigno: number;   // SHUTTLE_FROM_LIVIGNO
+    supplyFromLivigno: number;    // SUPPLY_FROM_LIVIGNO
   };
   daysWithDeliveries: number;
 }
@@ -79,7 +85,16 @@ export function calculateGlobalMaxV2(
     return {
       totalLiters: 0,
       dayPlans: [],
-      breakdown: { supplyTrips: 0, transferTrips: 0, shuttleTrips: 0, fullRoundTrips: 0, livignoShuttles: 0, livignoSupplyTrips: 0 },
+      breakdown: {
+        supplyTrips: 0,
+        transferTrips: 0,
+        shuttleTrips: 0,
+        fullRoundTrips: 0,
+        livignoShuttles: 0,
+        livignoSupplyTrips: 0,
+        shuttleFromLivigno: 0,
+        supplyFromLivigno: 0,
+      },
       daysWithDeliveries: 0,
     };
   }
@@ -98,6 +113,8 @@ export function calculateGlobalMaxV2(
   let totalFullRound = 0;
   let totalLivignoShuttle = 0;
   let totalLivignoSupply = 0;
+  let totalShuttleFromLivigno = 0;  // SHUTTLE_FROM_LIVIGNO
+  let totalSupplyFromLivigno = 0;   // SUPPLY_FROM_LIVIGNO
   let daysWithDeliveries = 0;
 
   // Traccia eccezioni ADR usate per driver Livigno (max 2/settimana)
@@ -135,6 +152,8 @@ export function calculateGlobalMaxV2(
     let fullRoundToday = 0;
     let livignoShuttleToday = 0;
     let livignoSupplyToday = 0;
+    let shuttleFromLivignoToday = 0;
+    let supplyFromLivignoToday = 0;
 
     // Risorse che arriveranno dopo i SUPPLY (a metà giornata)
     let pendingFullTrailers = 0;
@@ -215,6 +234,11 @@ export function calculateGlobalMaxV2(
     // =========================================================================
     // FASE 3: SHUTTLE e TRANSFER (driver Tirano e Livigno in parallelo)
     // =========================================================================
+    // NOTA: Questa simulazione non distingue tra driver Livigno con motrice
+    // a Tirano vs a Livigno. Per il calcolo MAX, assumiamo che i driver Livigno
+    // possano usare sia SHUTTLE standard (motrice a Tirano) che SHUTTLE_FROM_LIVIGNO
+    // (motrice a Livigno che consuma rimorchi pieni).
+    // =========================================================================
     let madeProgress = true;
     let iterations = 0;
     const maxIterations = 100;
@@ -223,13 +247,13 @@ export function calculateGlobalMaxV2(
       madeProgress = false;
       iterations++;
 
-      // Prima i driver Livigno: possono solo fare SHUTTLE
+      // Prima i driver Livigno
       const availableLivignoDrivers = livignoDriverStates
-        .filter(d => d.hoursLeft >= HOURS.SHUTTLE)
+        .filter(d => d.hoursLeft >= Math.min(HOURS.SHUTTLE, HOURS.SHUTTLE_FROM_LIVIGNO))
         .sort((a, b) => b.hoursLeft - a.hoursLeft);
 
       for (const driver of availableLivignoDrivers) {
-        // Driver Livigno: SHUTTLE "inverso" (scende a Tirano, prende motrice piena, torna)
+        // PRIORITÀ 1: SHUTTLE standard (motrice piena a Tirano)
         if (fullTanks > 0 && driver.hoursLeft >= HOURS.SHUTTLE) {
           fullTanks--;
           emptyTanks++; // La motrice torna vuota a Tirano
@@ -238,6 +262,35 @@ export function calculateGlobalMaxV2(
           litersToday += LITERS_PER_TANK;
           madeProgress = true;
           break;
+        }
+
+        // PRIORITÀ 2: SHUTTLE_FROM_LIVIGNO (motrice a Livigno, consuma rimorchio pieno)
+        // Questo simula un driver Livigno con motrice dedicata che resta a Livigno
+        if (fullTrailers > 0 && driver.hoursLeft >= HOURS.SHUTTLE_FROM_LIVIGNO) {
+          fullTrailers--;
+          emptyTrailers++; // Il rimorchio torna vuoto a Tirano
+          driver.hoursLeft -= HOURS.SHUTTLE_FROM_LIVIGNO;
+          shuttleFromLivignoToday++;
+          litersToday += LITERS_PER_TANK;
+          madeProgress = true;
+          break;
+        }
+
+        // PRIORITÀ 3: SUPPLY_FROM_LIVIGNO (se nessuna risorsa disponibile)
+        // Richiede eccezione ADR e giornata piena
+        if (emptyTrailers > 0 && driver.hoursLeft >= HOURS.SUPPLY_FROM_LIVIGNO) {
+          const usedExceptions = livignoAdrExceptions.get(driver.id) || 0;
+          if (usedExceptions < MAX_ADR_EXTENDED_PER_WEEK) {
+            emptyTrailers--;
+            // Il rimorchio torna pieno, ma la motrice resta a Livigno
+            pendingFullTrailers++;
+            driver.hoursLeft = 0; // Consuma tutta la giornata
+            livignoAdrExceptions.set(driver.id, usedExceptions + 1);
+            supplyFromLivignoToday++;
+            litersToday += LITERS_PER_TANK; // Consegna 17.500L a Livigno
+            madeProgress = true;
+            break;
+          }
         }
       }
 
@@ -324,6 +377,8 @@ export function calculateGlobalMaxV2(
     totalFullRound += fullRoundToday;
     totalLivignoShuttle += livignoShuttleToday;
     totalLivignoSupply += livignoSupplyToday;
+    totalShuttleFromLivigno += shuttleFromLivignoToday;
+    totalSupplyFromLivigno += supplyFromLivignoToday;
     if (litersToday > 0) daysWithDeliveries++;
   }
 
@@ -337,6 +392,8 @@ export function calculateGlobalMaxV2(
       fullRoundTrips: totalFullRound,
       livignoShuttles: totalLivignoShuttle,
       livignoSupplyTrips: totalLivignoSupply,
+      shuttleFromLivigno: totalShuttleFromLivigno,
+      supplyFromLivigno: totalSupplyFromLivigno,
     },
     daysWithDeliveries,
   };

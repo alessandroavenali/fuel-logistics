@@ -82,6 +82,14 @@ const getTripTypeBadge = (type: TripType) => {
       label: 'Sversamento',
       className: 'bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300',
     },
+    SHUTTLE_FROM_LIVIGNO: {
+      label: 'Shuttle Livigno',
+      className: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900 dark:text-cyan-300',
+    },
+    SUPPLY_FROM_LIVIGNO: {
+      label: 'Supply Livigno',
+      className: 'bg-pink-100 text-pink-700 dark:bg-pink-900 dark:text-pink-300',
+    },
   };
   return badges[type] || badges.FULL_ROUND;
 };
@@ -398,6 +406,181 @@ export default function ScheduleDetail() {
         });
       }
 
+      // === SHUTTLE_FROM_LIVIGNO: Driver Livigno con motrice a Livigno (4.5h) ===
+      // Livigno -> Tirano -> TRANSFER -> Tirano -> Livigno -> scarico
+      else if (tripType === 'SHUTTLE_FROM_LIVIGNO') {
+        const TRANSFER_TIME = 30;
+        const INTEGRATED_TANK_LITERS = 17500;
+
+        // 1. Partenza da Livigno (motrice vuota)
+        timeline.push({
+          time: new Date(currentTime),
+          location: destinationLocation.name,
+          action: 'Partenza (motrice vuota)',
+          icon: 'start',
+        });
+
+        // 2. Livigno -> Tirano
+        currentTime = addMinutes(currentTime, getRouteDuration(destinationLocation.id, parkingLocation.id));
+        timeline.push({
+          time: new Date(currentTime),
+          location: parkingLocation.name,
+          action: 'Arrivo a Tirano',
+          icon: 'arrive',
+          trailers: getTrailerPlates(allTrailers, true),
+        });
+
+        // 3. TRANSFER: rimorchio pieno -> cisterna integrata
+        timeline.push({
+          time: new Date(currentTime),
+          location: parkingLocation.name,
+          action: 'Sversamento rimorchio → cisterna',
+          icon: 'load',
+          details: `${INTEGRATED_TANK_LITERS.toLocaleString()} L`,
+          trailers: getTrailerPlates(allTrailers, false),
+        });
+        currentTime = addMinutes(currentTime, TRANSFER_TIME);
+
+        // 4. Tirano -> Livigno (con motrice piena)
+        timeline.push({
+          time: new Date(currentTime),
+          location: parkingLocation.name,
+          action: 'Partenza verso Livigno',
+          icon: 'depart',
+        });
+
+        currentTime = addMinutes(currentTime, getRouteDuration(parkingLocation.id, destinationLocation.id));
+        timeline.push({
+          time: new Date(currentTime),
+          location: destinationLocation.name,
+          action: 'Arrivo a Livigno',
+          icon: 'arrive',
+        });
+
+        // 5. Scarico a Livigno
+        timeline.push({
+          time: new Date(currentTime),
+          location: destinationLocation.name,
+          action: 'Scarico cisterna integrata',
+          icon: 'unload',
+          details: `${INTEGRATED_TANK_LITERS.toLocaleString()} L`,
+        });
+        currentTime = addMinutes(currentTime, UNLOAD_TIME);
+
+        // 6. Fine turno (motrice resta a Livigno!)
+        timeline.push({
+          time: new Date(currentTime),
+          location: destinationLocation.name,
+          action: 'Fine turno (motrice a Livigno)',
+          icon: 'end',
+        });
+      }
+
+      // === SUPPLY_FROM_LIVIGNO: Driver Livigno con motrice a Livigno (10h) ===
+      // Livigno -> Tirano -> Milano -> Tirano -> Livigno
+      else if (tripType === 'SUPPLY_FROM_LIVIGNO') {
+        const INTEGRATED_TANK_LITERS = 17500;
+
+        // 1. Partenza da Livigno (motrice vuota)
+        timeline.push({
+          time: new Date(currentTime),
+          location: destinationLocation.name,
+          action: 'Partenza (motrice vuota)',
+          icon: 'start',
+        });
+
+        // 2. Livigno -> Tirano
+        currentTime = addMinutes(currentTime, getRouteDuration(destinationLocation.id, parkingLocation.id));
+        timeline.push({
+          time: new Date(currentTime),
+          location: parkingLocation.name,
+          action: 'Arrivo a Tirano - Aggancio rimorchio vuoto',
+          icon: 'arrive',
+          trailers: getTrailerPlates(allTrailers, false),
+        });
+
+        // 3. Tirano -> Milano
+        timeline.push({
+          time: new Date(currentTime),
+          location: parkingLocation.name,
+          action: 'Partenza verso Milano',
+          icon: 'depart',
+          trailers: getTrailerPlates(allTrailers, false),
+        });
+
+        currentTime = addMinutes(currentTime, getRouteDuration(parkingLocation.id, sourceLocation.id));
+        timeline.push({
+          time: new Date(currentTime),
+          location: sourceLocation.name,
+          action: 'Arrivo a Milano',
+          icon: 'arrive',
+          trailers: getTrailerPlates(allTrailers, false),
+        });
+
+        // 4. Carico (motrice + rimorchio)
+        timeline.push({
+          time: new Date(currentTime),
+          location: sourceLocation.name,
+          action: 'Carico (cisterna + rimorchio)',
+          icon: 'load',
+          details: '35.000 L totali',
+          trailers: getTrailerPlates(allTrailers, true),
+        });
+        currentTime = addMinutes(currentTime, LOAD_TIME * 2);
+
+        // 5. Milano -> Tirano
+        timeline.push({
+          time: new Date(currentTime),
+          location: sourceLocation.name,
+          action: 'Partenza verso Tirano',
+          icon: 'depart',
+          trailers: getTrailerPlates(allTrailers, true),
+        });
+
+        currentTime = addMinutes(currentTime, getRouteDuration(sourceLocation.id, parkingLocation.id));
+        timeline.push({
+          time: new Date(currentTime),
+          location: parkingLocation.name,
+          action: 'Arrivo a Tirano - Sgancio rimorchio pieno',
+          icon: 'dropoff',
+          trailers: getTrailerPlates(allTrailers, true),
+        });
+
+        // 6. Tirano -> Livigno (con motrice piena)
+        timeline.push({
+          time: new Date(currentTime),
+          location: parkingLocation.name,
+          action: 'Partenza verso Livigno',
+          icon: 'depart',
+        });
+
+        currentTime = addMinutes(currentTime, getRouteDuration(parkingLocation.id, destinationLocation.id));
+        timeline.push({
+          time: new Date(currentTime),
+          location: destinationLocation.name,
+          action: 'Arrivo a Livigno',
+          icon: 'arrive',
+        });
+
+        // 7. Scarico a Livigno
+        timeline.push({
+          time: new Date(currentTime),
+          location: destinationLocation.name,
+          action: 'Scarico cisterna integrata',
+          icon: 'unload',
+          details: `${INTEGRATED_TANK_LITERS.toLocaleString()} L`,
+        });
+        currentTime = addMinutes(currentTime, UNLOAD_TIME);
+
+        // 8. Fine turno (motrice resta a Livigno!)
+        timeline.push({
+          time: new Date(currentTime),
+          location: destinationLocation.name,
+          action: 'Fine turno (motrice a Livigno)',
+          icon: 'end',
+        });
+      }
+
       return timeline;
     };
   }, [routeMap, sourceLocation, parkingLocation, destinationLocation]);
@@ -607,8 +790,15 @@ export default function ScheduleDetail() {
   // SUPPLY_MILANO e TRANSFER_TIRANO sono operazioni intermedie di logistica
   const totalLitersPlanned = schedule.trips?.reduce(
     (sum: number, trip: Trip) => {
-      // Solo FULL_ROUND e SHUTTLE_LIVIGNO consegnano a Livigno
-      if (trip.tripType === 'FULL_ROUND' || trip.tripType === 'SHUTTLE_LIVIGNO') {
+      // Tipi che consegnano a Livigno:
+      // - FULL_ROUND: 17.500L
+      // - SHUTTLE_LIVIGNO: 17.500L
+      // - SHUTTLE_FROM_LIVIGNO: 17.500L (driver Livigno con motrice dedicata)
+      // - SUPPLY_FROM_LIVIGNO: 17.500L (driver Livigno con motrice dedicata)
+      if (trip.tripType === 'FULL_ROUND' ||
+          trip.tripType === 'SHUTTLE_LIVIGNO' ||
+          trip.tripType === 'SHUTTLE_FROM_LIVIGNO' ||
+          trip.tripType === 'SUPPLY_FROM_LIVIGNO') {
         return sum + 17500;
       }
       // SUPPLY_MILANO e TRANSFER_TIRANO non consegnano, sono operazioni di rifornimento

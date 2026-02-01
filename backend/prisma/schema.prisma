@@ -37,21 +37,25 @@ enum LocationType {
 
 // Tipo di viaggio per ottimizzazione logistica
 enum TripType {
-  SHUTTLE_LIVIGNO    // Tirano <-> Livigno: ~3.5h, 1 cisterna, 17.500L
-  SUPPLY_MILANO      // Tirano <-> Milano: ~6h, 2 cisterne, riempie deposito Tirano
-  FULL_ROUND         // Completo: ~8h, Milano -> Tirano -> Livigno -> Tirano, 17.500L
+  SHUTTLE_LIVIGNO       // Tirano <-> Livigno: ~4.5h, solo motrice (cisterna integrata), 17.500L
+  SUPPLY_MILANO         // Tirano <-> Milano: ~6h, motrice + 1 rimorchio, riempie deposito Tirano (35.000L)
+  FULL_ROUND            // Completo: ~9h, Milano -> Tirano -> Livigno -> Tirano, 17.500L
+  TRANSFER_TIRANO       // Sversamento: 30min, rimorchio pieno -> cisterna integrata vuota a Tirano
+  SHUTTLE_FROM_LIVIGNO  // Driver Livigno: Livigno -> Tirano -> transfer -> Livigno: ~4.5h, 17.500L
+  SUPPLY_FROM_LIVIGNO   // Driver Livigno: Livigno -> Tirano -> Milano -> Tirano -> Livigno: ~10h, 17.500L (eccezione ADR)
 }
 
-// Motrici
+// Motrici (con cisterna integrata)
 model Vehicle {
-  id             String   @id @default(uuid())
-  plate          String   @unique
-  name           String?
-  maxTrailers    Int      @default(2)
-  baseLocationId String?
-  isActive       Boolean  @default(true)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id                   String   @id @default(uuid())
+  plate                String   @unique
+  name                 String?
+  maxTrailers          Int      @default(1)      // Può trainare max 1 rimorchio
+  integratedTankLiters Int      @default(17500)  // Cisterna integrata non staccabile
+  baseLocationId       String?
+  isActive             Boolean  @default(true)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 
   baseLocation      Location?              @relation("VehicleBase", fields: [baseLocationId], references: [id])
   trips             Trip[]
@@ -157,6 +161,7 @@ model ScheduleVehicleState {
   scheduleId String
   vehicleId  String
   locationId String
+  isTankFull Boolean  @default(false)  // Stato cisterna integrata (piena/vuota)
   createdAt  DateTime @default(now())
 
   schedule Schedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)

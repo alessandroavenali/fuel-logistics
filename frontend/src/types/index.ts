@@ -3,7 +3,7 @@ export type LocationType = 'SOURCE' | 'DESTINATION' | 'PARKING';
 export type DriverType = 'RESIDENT' | 'ON_CALL' | 'EMERGENCY';
 export type ScheduleStatus = 'DRAFT' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED';
 export type TripStatus = 'PLANNED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
-export type TripType = 'SHUTTLE_LIVIGNO' | 'SUPPLY_MILANO' | 'FULL_ROUND' | 'TRANSFER_TIRANO';
+export type TripType = 'SHUTTLE_LIVIGNO' | 'SUPPLY_MILANO' | 'FULL_ROUND' | 'TRANSFER_TIRANO' | 'SHUTTLE_FROM_LIVIGNO' | 'SUPPLY_FROM_LIVIGNO';
 
 // Models
 export interface Location {
@@ -284,6 +284,9 @@ export interface OptimizationResult {
       SHUTTLE_LIVIGNO: number;
       SUPPLY_MILANO: number;
       FULL_ROUND: number;
+      TRANSFER_TIRANO: number;
+      SHUTTLE_FROM_LIVIGNO: number;
+      SUPPLY_FROM_LIVIGNO: number;
     };
   };
 }

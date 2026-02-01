@@ -59,6 +59,8 @@ const tripTypeColors: Record<TripType, { bg: string; border: string; text: strin
   SUPPLY_MILANO: { bg: 'bg-blue-500', border: 'border-blue-600', text: 'text-white', label: 'Supply' },
   FULL_ROUND: { bg: 'bg-purple-500', border: 'border-purple-600', text: 'text-white', label: 'Completo' },
   TRANSFER_TIRANO: { bg: 'bg-orange-500', border: 'border-orange-600', text: 'text-white', label: 'Transfer' },
+  SHUTTLE_FROM_LIVIGNO: { bg: 'bg-cyan-500', border: 'border-cyan-600', text: 'text-white', label: 'Shuttle LIV' },
+  SUPPLY_FROM_LIVIGNO: { bg: 'bg-pink-500', border: 'border-pink-600', text: 'text-white', label: 'Supply LIV' },
 };
 
 function getTimePosition(date: Date): number {
@@ -152,6 +154,39 @@ export function DriverTimeline({
         timeline.push({ time: new Date(currentTime), location: destination.name, action: 'Partenza', icon: 'depart' });
         currentTime = addMinutes(currentTime, getRouteDuration(destination.id, parking.id));
         timeline.push({ time: new Date(currentTime), location: parking.name, action: 'Fine', icon: 'end' });
+      } else if (tripType === 'SHUTTLE_FROM_LIVIGNO') {
+        // SHUTTLE_FROM_LIVIGNO: Livigno -> Tirano -> Transfer -> Tirano -> Livigno (4.5h)
+        const TRANSFER_TIME = 30;
+        timeline.push({ time: new Date(currentTime), location: destination.name, action: 'Partenza da Livigno', icon: 'start' });
+        currentTime = addMinutes(currentTime, getRouteDuration(destination.id, parking.id));
+        timeline.push({ time: new Date(currentTime), location: parking.name, action: 'Arrivo Tirano', icon: 'arrive' });
+        timeline.push({ time: new Date(currentTime), location: parking.name, action: 'Transfer', icon: 'load', details: '17.500 L' });
+        currentTime = addMinutes(currentTime, TRANSFER_TIME);
+        timeline.push({ time: new Date(currentTime), location: parking.name, action: 'Partenza', icon: 'depart' });
+        currentTime = addMinutes(currentTime, getRouteDuration(parking.id, destination.id));
+        timeline.push({ time: new Date(currentTime), location: destination.name, action: 'Arrivo Livigno', icon: 'arrive' });
+        timeline.push({ time: new Date(currentTime), location: destination.name, action: 'Scarico', icon: 'unload', details: '17.500 L' });
+        currentTime = addMinutes(currentTime, UNLOAD_TIME);
+        timeline.push({ time: new Date(currentTime), location: destination.name, action: 'Fine (motrice a Livigno)', icon: 'end' });
+      } else if (tripType === 'SUPPLY_FROM_LIVIGNO') {
+        // SUPPLY_FROM_LIVIGNO: Livigno -> Tirano -> Milano -> Tirano -> Livigno (10h)
+        timeline.push({ time: new Date(currentTime), location: destination.name, action: 'Partenza da Livigno', icon: 'start' });
+        currentTime = addMinutes(currentTime, getRouteDuration(destination.id, parking.id));
+        timeline.push({ time: new Date(currentTime), location: parking.name, action: 'Arrivo Tirano', icon: 'arrive' });
+        timeline.push({ time: new Date(currentTime), location: parking.name, action: 'Partenza', icon: 'depart' });
+        currentTime = addMinutes(currentTime, getRouteDuration(parking.id, source.id));
+        timeline.push({ time: new Date(currentTime), location: source.name, action: 'Arrivo Milano', icon: 'arrive' });
+        timeline.push({ time: new Date(currentTime), location: source.name, action: 'Carico', icon: 'load', details: '35.000 L' });
+        currentTime = addMinutes(currentTime, LOAD_TIME * 2);
+        timeline.push({ time: new Date(currentTime), location: source.name, action: 'Partenza', icon: 'depart' });
+        currentTime = addMinutes(currentTime, getRouteDuration(source.id, parking.id));
+        timeline.push({ time: new Date(currentTime), location: parking.name, action: 'Arrivo Tirano', icon: 'arrive' });
+        timeline.push({ time: new Date(currentTime), location: parking.name, action: 'Partenza', icon: 'depart' });
+        currentTime = addMinutes(currentTime, getRouteDuration(parking.id, destination.id));
+        timeline.push({ time: new Date(currentTime), location: destination.name, action: 'Arrivo Livigno', icon: 'arrive' });
+        timeline.push({ time: new Date(currentTime), location: destination.name, action: 'Scarico', icon: 'unload', details: '17.500 L' });
+        currentTime = addMinutes(currentTime, UNLOAD_TIME);
+        timeline.push({ time: new Date(currentTime), location: destination.name, action: 'Fine (motrice a Livigno)', icon: 'end' });
       }
       return timeline;
     };
@@ -351,71 +386,70 @@ export function DriverTimeline({
                       return (
                         <div
                           key={trip.id}
-                          className="relative"
+                          className="absolute top-0 bottom-0"
+                          style={{
+                            left: `${left}px`,
+                            width: `${width}px`,
+                          }}
                           onMouseEnter={() => setHoveredTripId(trip.id)}
                           onMouseLeave={() => setHoveredTripId(null)}
                         >
+                          {/* Barra colorata */}
                           <div
                             className={cn(
-                              "absolute top-2 bottom-2 rounded-md cursor-pointer transition-all overflow-hidden",
+                              "absolute top-2 bottom-2 left-0 right-0 rounded-md cursor-pointer transition-all",
                               colors.bg,
                               colors.text,
                               "border-2",
                               isSelected ? "ring-2 ring-offset-2 ring-primary border-primary-foreground" : colors.border,
                               "hover:brightness-110 hover:shadow-lg"
                             )}
-                            style={{
-                              left: `${left}px`,
-                              width: `${width}px`,
-                            }}
                             onClick={(e) => {
                               e.stopPropagation();
                               onSelectTrip(trip);
                             }}
                           >
-                            <div className="px-2 py-1 h-full flex flex-col justify-center">
-                              {/* Main info */}
-                              <div className="flex items-center gap-1 text-xs font-medium truncate">
-                                <Truck className="h-3 w-3 flex-shrink-0" />
-                                <span className="truncate">{trip.vehicle?.plate || 'N/A'}</span>
-                              </div>
-
-                              {/* Trailers and liters */}
-                              <div className="flex items-center gap-1 text-xs opacity-90 truncate">
-                                <Container className="h-3 w-3 flex-shrink-0" />
-                                <span className="truncate">
-                                  {trailersInfo || 'N/A'} • {formatLiters(totalLiters)}
-                                </span>
-                              </div>
-
-                              {/* Icons for special operations */}
-                              {(hasPickup || hasDropOff) && (
-                                <div className="flex gap-1 mt-0.5">
-                                  {hasPickup && (
-                                    <span className="inline-flex items-center text-xs bg-white/20 rounded px-1">
-                                      <ArrowUp className="h-3 w-3 mr-0.5" />
-                                      Pick
+                            <div className="px-1.5 py-0.5 h-full flex flex-col justify-center overflow-hidden">
+                              {/* Contenuto adattivo in base alla larghezza */}
+                              {width > 80 ? (
+                                <>
+                                  {/* Main info */}
+                                  <div className="flex items-center gap-1 text-xs font-medium truncate">
+                                    <Truck className="h-3 w-3 flex-shrink-0" />
+                                    <span className="truncate">{trip.vehicle?.plate || 'N/A'}</span>
+                                    {/* Pick/Drop inline */}
+                                    {hasPickup && <ArrowUp className="h-3 w-3 flex-shrink-0 ml-1" />}
+                                    {hasDropOff && <ArrowDown className="h-3 w-3 flex-shrink-0" />}
+                                  </div>
+                                  {/* Trailers and liters */}
+                                  <div className="flex items-center gap-1 text-xs opacity-90 truncate">
+                                    <Container className="h-3 w-3 flex-shrink-0" />
+                                    <span className="truncate">
+                                      {trailersInfo || 'N/A'} • {formatLiters(totalLiters)}
                                     </span>
-                                  )}
-                                  {hasDropOff && (
-                                    <span className="inline-flex items-center text-xs bg-white/20 rounded px-1">
-                                      <ArrowDown className="h-3 w-3 mr-0.5" />
-                                      Drop
-                                    </span>
-                                  )}
+                                  </div>
+                                </>
+                              ) : (
+                                /* Barra stretta: mostra solo icona tipo */
+                                <div className="flex items-center justify-center h-full">
+                                  <Truck className="h-3 w-3" />
                                 </div>
                               )}
                             </div>
                           </div>
 
-                          {/* Tooltip con cronologia */}
+                          {/* Tooltip con cronologia - FRATELLO della barra, non figlio */}
                           {isHovered && timeline.length > 0 && (
                             <div
-                              className="absolute z-50 bg-popover border rounded-lg shadow-xl p-3 min-w-[280px] pointer-events-none"
+                              className="absolute z-[9999] bg-popover text-popover-foreground border rounded-lg shadow-xl p-3 w-[280px] pointer-events-none"
                               style={{
-                                left: `${left}px`,
                                 top: '100%',
                                 marginTop: '4px',
+                                // Se la barra è nella metà destra, allinea tooltip a destra
+                                ...(left > timelineWidth / 2
+                                  ? { right: 0 }
+                                  : { left: 0 }
+                                ),
                               }}
                             >
                               <div className="flex items-center gap-2 mb-2 pb-2 border-b">
@@ -471,7 +505,7 @@ export function DriverTimeline({
       </div>
 
       {/* Legend */}
-      <div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground flex-shrink-0">
+      <div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground flex-shrink-0 flex-wrap">
         <span className="font-medium">Tipo:</span>
         <div className="flex items-center gap-1">
           <div className="w-3 h-3 rounded bg-green-500" />
@@ -488,6 +522,14 @@ export function DriverTimeline({
         <div className="flex items-center gap-1">
           <div className="w-3 h-3 rounded bg-orange-500" />
           <span>Transfer</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <div className="w-3 h-3 rounded bg-cyan-500" />
+          <span>Shuttle LIV</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <div className="w-3 h-3 rounded bg-pink-500" />
+          <span>Supply LIV</span>
         </div>
         <div className="flex items-center gap-1">
           <div className="w-3 h-3 rounded bg-red-400" />

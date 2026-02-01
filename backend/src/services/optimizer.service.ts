@@ -28,6 +28,8 @@ interface TripDurations {
   SUPPLY_MILANO_FROM_LIVIGNO: number;
   FULL_ROUND: number;
   TRANSFER_TIRANO: number;
+  SHUTTLE_FROM_LIVIGNO: number;    // Driver Livigno con motrice a Livigno: 4.5h
+  SUPPLY_FROM_LIVIGNO: number;     // Driver Livigno con motrice a Livigno: 10h
 }
 
 async function getRouteDurations(prisma: PrismaClient): Promise<RouteDurations> {
@@ -73,12 +75,35 @@ function calculateTripDurations(routes: RouteDurations): TripDurations {
   const fullRound = routes.tiranoToMilano + LOADING_TIME_SINGLE + routes.milanoToTirano +
                     routes.tiranoToLivigno + UNLOADING_TIME_LIVIGNO + routes.livignoToTirano;
 
+  // =========================================================================
+  // NUOVI TIPI PER DRIVER LIVIGNO CON MOTRICE DEDICATA CHE RESTA A LIVIGNO
+  // =========================================================================
+
+  // SHUTTLE_FROM_LIVIGNO: Livigno → Tirano → TRANSFER → Tirano → Livigno (4.5h)
+  // Il driver parte da Livigno con motrice vuota, va a Tirano, prende carburante
+  // da un rimorchio pieno (TRANSFER), torna a Livigno con motrice piena, scarica.
+  // Fasi: Livigno→Tirano (90min) + TRANSFER (30min) + Tirano→Livigno (120min) + Scarico (30min)
+  const shuttleFromLivigno = routes.livignoToTirano + TRANSFER_TIME_TIRANO +
+                             routes.tiranoToLivigno + UNLOADING_TIME_LIVIGNO;  // 90+30+120+30 = 270 min (4.5h)
+
+  // SUPPLY_FROM_LIVIGNO: Livigno → Tirano → Milano → Tirano → Livigno (10h)
+  // Il driver parte da Livigno, va a Tirano, aggancia rimorchio vuoto,
+  // va a Milano, carica motrice+rimorchio, torna a Tirano, sgancia rimorchio pieno,
+  // va a Livigno con motrice piena, scarica. Richiede eccezione ADR (max 2/settimana).
+  // Fasi: Livigno→Tirano (90min) + Tirano→Milano (150min) + Carico (60min) +
+  //       Milano→Tirano (150min) + Tirano→Livigno (120min) + Scarico (30min)
+  const supplyFromLivignoNew = routes.livignoToTirano + routes.tiranoToMilano +
+                               LOADING_TIME_SUPPLY + routes.milanoToTirano +
+                               routes.tiranoToLivigno + UNLOADING_TIME_LIVIGNO;  // 90+150+60+150+120+30 = 600 min (10h)
+
   return {
     SHUTTLE_LIVIGNO: shuttleDuration,                    // 120 + 30 + 90 = 240 min (4h)
     SUPPLY_MILANO_FROM_TIRANO: supplyFromTirano,         // 150 + 60 + 150 = 360 min (6h)
     SUPPLY_MILANO_FROM_LIVIGNO: supplyFromLivigno,       // 90 + 360 + 120 = 570 min (9.5h)
     FULL_ROUND: fullRound,                               // 150 + 30 + 150 + 120 + 30 + 90 = 570 min (9.5h)
     TRANSFER_TIRANO: TRANSFER_TIME_TIRANO,               // 30 min
+    SHUTTLE_FROM_LIVIGNO: shuttleFromLivigno,            // 90 + 30 + 120 + 30 = 270 min (4.5h)
+    SUPPLY_FROM_LIVIGNO: supplyFromLivignoNew,           // 90 + 150 + 60 + 150 + 120 + 30 = 600 min (10h)
   };
 }
 
@@ -97,6 +122,8 @@ interface OptimizationResult {
       SUPPLY_MILANO: number;
       FULL_ROUND: number;
       TRANSFER_TIRANO: number;
+      SHUTTLE_FROM_LIVIGNO: number;
+      SUPPLY_FROM_LIVIGNO: number;
     };
   };
 }
@@ -129,18 +156,22 @@ interface GeneratedTrip {
 
 // Litri consegnati a Livigno per tipo viaggio
 const TRIP_LITERS = {
-  SHUTTLE_LIVIGNO: 17500,  // Cisterna integrata della motrice
-  SUPPLY_MILANO: 35000,    // Motrice (17.500) + 1 rimorchio (17.500) - non consegna, riempie Tirano
-  FULL_ROUND: 17500,       // Cisterna integrata a Livigno
-  TRANSFER_TIRANO: 17500,  // Sversamento rimorchio → cisterna integrata
+  SHUTTLE_LIVIGNO: 17500,       // Cisterna integrata della motrice
+  SUPPLY_MILANO: 35000,         // Motrice (17.500) + 1 rimorchio (17.500) - non consegna, riempie Tirano
+  FULL_ROUND: 17500,            // Cisterna integrata a Livigno
+  TRANSFER_TIRANO: 17500,       // Sversamento rimorchio → cisterna integrata
+  SHUTTLE_FROM_LIVIGNO: 17500,  // Driver Livigno: cisterna integrata consegnata a Livigno
+  SUPPLY_FROM_LIVIGNO: 17500,   // Driver Livigno: cisterna integrata + 1 rimorchio pieno lasciato a Tirano
 };
 
 // Rimorchi utilizzati per tipo viaggio
 const TRIP_TRAILERS = {
-  SHUTTLE_LIVIGNO: 0,  // Solo motrice sale (cisterna integrata)
-  SUPPLY_MILANO: 1,    // Motrice + 1 rimorchio vuoto → tornano pieni
-  FULL_ROUND: 0,       // Solo motrice
-  TRANSFER_TIRANO: 1,  // 1 rimorchio pieno viene sversato
+  SHUTTLE_LIVIGNO: 0,       // Solo motrice sale (cisterna integrata)
+  SUPPLY_MILANO: 1,         // Motrice + 1 rimorchio vuoto → tornano pieni
+  FULL_ROUND: 0,            // Solo motrice
+  TRANSFER_TIRANO: 1,       // 1 rimorchio pieno viene sversato
+  SHUTTLE_FROM_LIVIGNO: 1,  // Consuma 1 rimorchio pieno a Tirano (diventa vuoto)
+  SUPPLY_FROM_LIVIGNO: 1,   // Usa 1 rimorchio vuoto a Tirano (torna pieno)
 };
 
 const LITERS_PER_TRAILER = 17500;
@@ -356,7 +387,14 @@ export async function optimizeSchedule(
 
   const generatedTrips: GeneratedTrip[] = [];
   let remainingLiters = schedule.requiredLiters;
-  const tripsByType = { SHUTTLE_LIVIGNO: 0, SUPPLY_MILANO: 0, FULL_ROUND: 0, TRANSFER_TIRANO: 0 };
+  const tripsByType = {
+    SHUTTLE_LIVIGNO: 0,
+    SUPPLY_MILANO: 0,
+    FULL_ROUND: 0,
+    TRANSFER_TIRANO: 0,
+    SHUTTLE_FROM_LIVIGNO: 0,
+    SUPPLY_FROM_LIVIGNO: 0,
+  };
 
   // ============================================================================
   // NUOVO ALGORITMO DI OTTIMIZZAZIONE - MOTRICI CON CISTERNA INTEGRATA
@@ -548,8 +586,12 @@ export async function optimizeSchedule(
           ? TRIP_DURATIONS.SUPPLY_MILANO_FROM_LIVIGNO
           : TRIP_DURATIONS.SUPPLY_MILANO_FROM_TIRANO;
         const supplyHours = supplyDuration / 60;
-        const shuttleHours = TRIP_DURATIONS.SHUTTLE_LIVIGNO / 60; // 4.5h
+        const shuttleHours = TRIP_DURATIONS.SHUTTLE_LIVIGNO / 60; // 4.5h (Tirano-based)
         const transferHours = TRIP_DURATIONS.TRANSFER_TIRANO / 60; // 0.5h
+
+        // Durate per driver Livigno con motrice dedicata a Livigno
+        const shuttleFromLivignoHours = TRIP_DURATIONS.SHUTTLE_FROM_LIVIGNO / 60; // 4.5h
+        const supplyFromLivignoHours = TRIP_DURATIONS.SUPPLY_FROM_LIVIGNO / 60; // 10h
 
         const hoursUntilEndOfDay = (endOfWorkDay.getTime() - availableTime.getTime()) / (1000 * 60 * 60);
         const hoursRemaining = maxHoursToday - state.hoursWorked;
@@ -557,6 +599,25 @@ export async function optimizeSchedule(
         const canDoShuttle = hoursRemaining >= shuttleHours && hoursUntilEndOfDay >= shuttleHours;
         const canDoTransfer = hoursRemaining >= transferHours && hoursUntilEndOfDay >= transferHours;
         const canDoFullRound = hoursRemaining >= 9 && hoursUntilEndOfDay >= 9;
+
+        // Capacità per driver Livigno con motrice a Livigno
+        const canDoShuttleFromLivigno = hoursRemaining >= shuttleFromLivignoHours && hoursUntilEndOfDay >= shuttleFromLivignoHours;
+        const canDoSupplyFromLivigno = hoursRemaining >= supplyFromLivignoHours && hoursUntilEndOfDay >= supplyFromLivignoHours;
+
+        // Controlla se il driver Livigno ha una motrice dedicata A LIVIGNO
+        let hasVehicleAtLivigno = false;
+        let vehicleAtLivignoId: string | null = null;
+        if (isLivignoDriver) {
+          for (const v of vehicles) {
+            const location = tracker.vehicleTankState.location.get(v.id);
+            if (location === livignoLocation.id &&
+                isResourceAvailable(v.id, availableTime, endOfWorkDay, tracker.vehicleTimeSlots)) {
+              hasVehicleAtLivigno = true;
+              vehicleAtLivignoId = v.id;
+              break;
+            }
+          }
+        }
 
         // Calcola quanti rimorchi pieni sono in attesa o in arrivo
         const pendingFullTrailerCount = fullTrailersAvailable + pendingFullTrailers.length;
@@ -596,36 +657,72 @@ export async function optimizeSchedule(
         const currentResources = totalRimorchiPieni + pendingFullTrailerCount;
         const needMoreSupply = currentResources < minResourcesNeeded && emptyTrailersAtTirano > 0;
 
-        // ALGORITMO GREEDY SEMPLICE:
-        // Priorità: SHUTTLE > TRANSFER > SUPPLY > FULL_ROUND
-        // Tutti i driver seguono la stessa logica
+        // =========================================================================
+        // ALGORITMO DECISIONALE
+        // =========================================================================
+        // Caso speciale: Driver Livigno con motrice dedicata CHE RESTA A LIVIGNO
+        // Questi driver usano SHUTTLE_FROM_LIVIGNO e SUPPLY_FROM_LIVIGNO
+        // La loro motrice non scende mai definitivamente a Tirano.
+        // =========================================================================
 
-        if (vehiclesWithFullTankAtTirano >= 1 && canDoShuttle) {
-          tripType = 'SHUTTLE_LIVIGNO';
-          tripDurationMinutes = TRIP_DURATIONS.SHUTTLE_LIVIGNO;
-        }
-        else if (vehiclesWithEmptyTankAtTirano >= 1 && fullTrailersAvailable >= 1 && canDoTransfer && !isLivignoDriver) {
-          // Driver Livigno non possono fare TRANSFER (parte da Tirano)
-          tripType = 'TRANSFER_TIRANO';
-          tripDurationMinutes = TRIP_DURATIONS.TRANSFER_TIRANO;
-        }
-        else if (emptyTrailersAtTirano >= 1 && canDoSupply) {
-          tripType = 'SUPPLY_MILANO';
-          tripDurationMinutes = supplyDuration;
-        }
-        else if (pendingFullTanks.length > 0 || pendingFullTrailers.length > 0) {
-          // Aspetta risorse in arrivo
-          const nextAvailable = [
-            ...pendingFullTanks.map(p => p.availableAt),
-            ...pendingFullTrailers.map(p => p.availableAt),
-          ].sort((a, b) => a.getTime() - b.getTime())[0];
-          if (nextAvailable) {
-            waitUntil = nextAvailable;
+        if (isLivignoDriver && hasVehicleAtLivigno) {
+          // DRIVER LIVIGNO CON MOTRICE A LIVIGNO
+          // Priorità: SHUTTLE_FROM_LIVIGNO > SUPPLY_FROM_LIVIGNO > attesa
+
+          if (fullTrailersAvailable >= 1 && canDoShuttleFromLivigno) {
+            // Ci sono rimorchi pieni a Tirano: può fare SHUTTLE_FROM_LIVIGNO
+            // Il driver scende a Tirano, fa TRANSFER, risale con motrice piena
+            tripType = 'SHUTTLE_FROM_LIVIGNO';
+            tripDurationMinutes = TRIP_DURATIONS.SHUTTLE_FROM_LIVIGNO;
           }
+          else if (emptyTrailersAtTirano >= 1 && canDoSupplyFromLivigno && state.extendedDaysThisWeek < 2) {
+            // Non ci sono rimorchi pieni, ma ci sono rimorchi vuoti: SUPPLY_FROM_LIVIGNO
+            // Richiede eccezione ADR (10h), max 2 volte/settimana
+            tripType = 'SUPPLY_FROM_LIVIGNO';
+            tripDurationMinutes = TRIP_DURATIONS.SUPPLY_FROM_LIVIGNO;
+          }
+          else if (pendingFullTrailers.length > 0) {
+            // Aspetta rimorchi pieni in arrivo (altri driver stanno facendo SUPPLY)
+            const nextTrailer = pendingFullTrailers.sort((a, b) =>
+              a.availableAt.getTime() - b.availableAt.getTime()
+            )[0];
+            if (nextTrailer) {
+              waitUntil = nextTrailer.availableAt;
+            }
+          }
+          // Se non può fare nulla, questo driver aspetta o la giornata finisce
         }
-        else if (canDoFullRound && (emptyTrailersAtTirano > 0 || tracker.trailerState.atMilano.size > 0)) {
-          tripType = 'FULL_ROUND';
-          tripDurationMinutes = TRIP_DURATIONS.FULL_ROUND;
+        else {
+          // DRIVER TIRANO (o Livigno senza motrice dedicata a Livigno)
+          // Priorità: SHUTTLE > TRANSFER > SUPPLY > FULL_ROUND
+
+          if (vehiclesWithFullTankAtTirano >= 1 && canDoShuttle) {
+            tripType = 'SHUTTLE_LIVIGNO';
+            tripDurationMinutes = TRIP_DURATIONS.SHUTTLE_LIVIGNO;
+          }
+          else if (vehiclesWithEmptyTankAtTirano >= 1 && fullTrailersAvailable >= 1 && canDoTransfer && !isLivignoDriver) {
+            // Driver Livigno non possono fare TRANSFER (parte da Tirano)
+            tripType = 'TRANSFER_TIRANO';
+            tripDurationMinutes = TRIP_DURATIONS.TRANSFER_TIRANO;
+          }
+          else if (emptyTrailersAtTirano >= 1 && canDoSupply) {
+            tripType = 'SUPPLY_MILANO';
+            tripDurationMinutes = supplyDuration;
+          }
+          else if (pendingFullTanks.length > 0 || pendingFullTrailers.length > 0) {
+            // Aspetta risorse in arrivo
+            const nextAvailable = [
+              ...pendingFullTanks.map(p => p.availableAt),
+              ...pendingFullTrailers.map(p => p.availableAt),
+            ].sort((a, b) => a.getTime() - b.getTime())[0];
+            if (nextAvailable) {
+              waitUntil = nextAvailable;
+            }
+          }
+          else if (canDoFullRound && (emptyTrailersAtTirano > 0 || tracker.trailerState.atMilano.size > 0)) {
+            tripType = 'FULL_ROUND';
+            tripDurationMinutes = TRIP_DURATIONS.FULL_ROUND;
+          }
         }
 
         // If waiting, update driver's next available time and continue
@@ -813,6 +910,119 @@ export async function optimizeSchedule(
             tracker.vehicleTankState.location.set(vehicle.id, tiranoLocation.id);
 
             tripsByType.SUPPLY_MILANO++;
+            success = true;
+          }
+        } else if (tripType === 'SHUTTLE_FROM_LIVIGNO') {
+          // =========================================================================
+          // SHUTTLE_FROM_LIVIGNO: Driver Livigno con motrice a Livigno (4.5h)
+          // =========================================================================
+          // Fasi:
+          // 1. Livigno → Tirano (90 min) con motrice vuota
+          // 2. TRANSFER: rimorchio pieno → cisterna integrata (30 min)
+          // 3. Tirano → Livigno (120 min) con motrice piena
+          // 4. Scarico a Livigno (30 min)
+          // La motrice RESTA A LIVIGNO!
+          // =========================================================================
+
+          // Trova la motrice a Livigno (già identificata in vehicleAtLivignoId)
+          vehicle = vehicleAtLivignoId ? vehicles.find(v => v.id === vehicleAtLivignoId) || null : null;
+
+          // Trova rimorchio pieno a Tirano
+          let trailerId: string | null = null;
+          if (vehicle) {
+            const fullIds = Array.from(tracker.trailerState.atTiranoFull);
+            trailerId = findAvailableTrailer(fullIds, departureTime, returnTime, tracker);
+
+            // Controlla anche rimorchi in arrivo
+            if (!trailerId) {
+              for (const [id, availAt] of trailerAvailableAt) {
+                if (availAt <= departureTime &&
+                    isResourceAvailable(id, departureTime, returnTime, tracker.trailerTimeSlots)) {
+                  trailerId = id;
+                  trailerAvailableAt.delete(id);
+                  break;
+                }
+              }
+            }
+          }
+
+          if (vehicle && trailerId) {
+            reserveResource(vehicle.id, departureTime, returnTime, driver.id, tracker.vehicleTimeSlots);
+            reserveResource(trailerId, departureTime, returnTime, driver.id, tracker.trailerTimeSlots);
+
+            tripTrailers = [{
+              trailerId: trailerId,
+              litersLoaded: LITERS_PER_TRAILER,
+              isPickup: true, // Il rimorchio viene usato per sversamento
+              dropOffLocationId: tiranoLocation.id, // Rimane a Tirano (vuoto)
+            }];
+
+            // Aggiorna stato:
+            // - Rimorchio: da pieno a vuoto a Tirano
+            tracker.trailerState.atTiranoFull.delete(trailerId);
+            tracker.trailerState.atTiranoEmpty.add(trailerId);
+
+            // - Cisterna integrata: vuota (ha scaricato a Livigno)
+            tracker.vehicleTankState.tankFull.set(vehicle.id, false);
+
+            // - CRUCIALE: la motrice RESTA A LIVIGNO!
+            tracker.vehicleTankState.location.set(vehicle.id, livignoLocation.id);
+
+            remainingLiters -= TRIP_LITERS.SHUTTLE_FROM_LIVIGNO;
+            tripsByType.SHUTTLE_FROM_LIVIGNO++;
+            success = true;
+          }
+        } else if (tripType === 'SUPPLY_FROM_LIVIGNO') {
+          // =========================================================================
+          // SUPPLY_FROM_LIVIGNO: Driver Livigno con motrice a Livigno (10h, eccezione ADR)
+          // =========================================================================
+          // Fasi:
+          // 1. Livigno → Tirano (90 min) con motrice vuota
+          // 2. Aggancio rimorchio vuoto
+          // 3. Tirano → Milano (150 min)
+          // 4. Carico (motrice + rimorchio) (60 min) = 35.000L totali
+          // 5. Milano → Tirano (150 min)
+          // 6. Sgancio rimorchio PIENO a Tirano
+          // 7. Tirano → Livigno (120 min) con motrice piena
+          // 8. Scarico a Livigno (30 min)
+          // La motrice RESTA A LIVIGNO con 17.500L consegnati!
+          // Il rimorchio pieno resta a Tirano per altri SHUTTLE.
+          // =========================================================================
+
+          // Trova la motrice a Livigno
+          vehicle = vehicleAtLivignoId ? vehicles.find(v => v.id === vehicleAtLivignoId) || null : null;
+
+          // Trova 1 rimorchio vuoto a Tirano
+          let trailerId: string | null = null;
+          if (vehicle) {
+            const emptyIds = Array.from(tracker.trailerState.atTiranoEmpty);
+            trailerId = findAvailableTrailer(emptyIds, departureTime, returnTime, tracker);
+          }
+
+          if (vehicle && trailerId) {
+            reserveResource(vehicle.id, departureTime, returnTime, driver.id, tracker.vehicleTimeSlots);
+            reserveResource(trailerId, departureTime, returnTime, driver.id, tracker.trailerTimeSlots);
+
+            tripTrailers = [{
+              trailerId: trailerId,
+              litersLoaded: LITERS_PER_TRAILER,
+              isPickup: true, // Prende rimorchio vuoto
+              dropOffLocationId: tiranoLocation.id, // Torna PIENO a Tirano
+            }];
+
+            // Aggiorna stato:
+            // - Rimorchio: da vuoto a pieno a Tirano (sarà disponibile al ritorno)
+            tracker.trailerState.atTiranoEmpty.delete(trailerId);
+            trailerAvailableAt.set(trailerId, returnTime); // Sarà pieno quando il viaggio finisce
+
+            // - Cisterna integrata: vuota (ha scaricato a Livigno)
+            tracker.vehicleTankState.tankFull.set(vehicle.id, false);
+
+            // - CRUCIALE: la motrice RESTA A LIVIGNO!
+            tracker.vehicleTankState.location.set(vehicle.id, livignoLocation.id);
+
+            remainingLiters -= TRIP_LITERS.SUPPLY_FROM_LIVIGNO;
+            tripsByType.SUPPLY_FROM_LIVIGNO++;
             success = true;
           }
         } else if (tripType === 'FULL_ROUND') {
@@ -1074,6 +1284,9 @@ export interface MaxCapacityResult {
     tiranoDriverFullRounds: number;
     supplyTrips: number;        // SUPPLY da Tirano (6h)
     transferTrips: number;      // Sversamenti a Tirano
+    // Nuovi tipi per driver Livigno con motrice dedicata a Livigno
+    shuttleFromLivigno: number; // SHUTTLE_FROM_LIVIGNO (4.5h)
+    supplyFromLivigno: number;  // SUPPLY_FROM_LIVIGNO (10h)
   };
   dailyCapacity: number; // maxLiters / daysWithDeliveries
   constraints: string[];
@@ -1267,6 +1480,8 @@ export async function calculateMaxCapacity(
       fullRoundTrips: number;
       livignoShuttles: number;
       livignoSupplyTrips: number;
+      shuttleFromLivigno: number;
+      supplyFromLivigno: number;
     };
     daysWithDeliveries: number;
   } => {
@@ -1275,7 +1490,16 @@ export async function calculateMaxCapacity(
     if (numDays === 0) {
       return {
         totalLiters: 0,
-        breakdown: { supplyTrips: 0, transferTrips: 0, shuttleTrips: 0, fullRoundTrips: 0, livignoShuttles: 0, livignoSupplyTrips: 0 },
+        breakdown: {
+          supplyTrips: 0,
+          transferTrips: 0,
+          shuttleTrips: 0,
+          fullRoundTrips: 0,
+          livignoShuttles: 0,
+          livignoSupplyTrips: 0,
+          shuttleFromLivigno: 0,
+          supplyFromLivigno: 0,
+        },
         daysWithDeliveries: 0,
       };
     }
@@ -1490,6 +1714,8 @@ export async function calculateMaxCapacity(
         fullRoundTrips: totalFullRound,
         livignoShuttles: totalLivignoShuttle,
         livignoSupplyTrips: totalLivignoSupply,
+        shuttleFromLivigno: 0, // Non tracciato separatamente in questo algoritmo semplificato
+        supplyFromLivigno: 0,  // Non tracciato separatamente in questo algoritmo semplificato
       },
       daysWithDeliveries,
     };
@@ -1549,6 +1775,8 @@ export async function calculateMaxCapacity(
       tiranoDriverFullRounds: bestResult.breakdown.fullRoundTrips,
       supplyTrips: bestResult.breakdown.supplyTrips,
       transferTrips: bestResult.breakdown.transferTrips,
+      shuttleFromLivigno: bestResult.breakdown.shuttleFromLivigno || 0,
+      supplyFromLivigno: bestResult.breakdown.supplyFromLivigno || 0,
     },
     dailyCapacity: bestResult.daysWithDeliveries > 0
       ? Math.floor(bestResult.totalLiters / bestResult.daysWithDeliveries)
