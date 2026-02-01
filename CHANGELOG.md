@@ -175,6 +175,36 @@ backend/src/tests/
 Documentate nel README le limitazioni note dell'algoritmo:
 
 1. **FULL_ROUND non eseguibile**: richiede 9.5h ma ADR limit è 9h
-2. **No combo SUPPLY+SHUTTLE**: 6h + 4h = 10h supera limite
-3. **Eccezione ADR solo per Livigno**: non implementata per FULL_ROUND o combo Tirano
+2. ~~**No combo SUPPLY+SHUTTLE**: 6h + 4h = 10h supera limite~~ → **RISOLTO**
+3. ~~**Eccezione ADR solo per Livigno**~~ → **RISOLTO: ora anche per Tirano**
 4. **No chaining intra-giornaliero**: tracking risorse a fine giornata
+
+### Added - Eccezioni ADR per Driver Tirano (2026-02-01)
+
+Implementato il supporto completo per le eccezioni ADR anche per i driver Tirano.
+
+#### Combo SUPPLY+SHUTTLE per Driver Tirano
+
+I driver Tirano ora possono fare:
+```
+SUPPLY_MILANO (6h) + SHUTTLE_LIVIGNO (4h) = 10h con eccezione ADR
+→ Consegna 17.500L a Livigno
+```
+
+#### Tracking Eccezioni ADR
+
+- `tiranoAdrExceptions`: mappa per tracciare le eccezioni usate da ogni driver Tirano
+- `adrExceptionsUsed`: contatore totale eccezioni nel breakdown
+- Reset automatico ogni 5 giorni lavorativi (nuova settimana)
+
+#### Impatto sui Risultati
+
+Con 0 rimorchi pieni iniziali:
+- **Prima**: solo Marco (Livigno) poteva consegnare → 17.500L
+- **Dopo**: Marco + Luca + Paolo con eccezioni ADR → **52.500L (+200%)**
+
+#### Frontend
+
+- Nuovo campo `adrExceptionsUsed` nel tipo `MaxCapacityResult`
+- Visualizzazione eccezioni ADR nella preview calcolo MAX (badge amber)
+- Aggiornato breakdown con SHUTTLE_FROM_LIVIGNO e SUPPLY_FROM_LIVIGNO

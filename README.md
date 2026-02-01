@@ -165,9 +165,26 @@ L'algoritmo calcola all'inizio di ogni giornata quanti driver Tirano sono "in ec
 
 ---
 
-## ⚠️ Limitazioni Algoritmo Attuale
+## Eccezioni ADR
 
-> **IMPORTANTE**: Queste limitazioni influenzano il calcolo MAX e la generazione turni.
+L'algoritmo utilizza automaticamente le eccezioni ADR (max 2/settimana per driver) per massimizzare le consegne:
+
+### Driver Livigno
+- `SUPPLY_FROM_LIVIGNO` (10h con eccezione ADR)
+- Consegna 17.500L + lascia rimorchio pieno a Tirano
+
+### Driver Tirano
+- **Combo SUPPLY+SHUTTLE** (6h + 4h = 10h con eccezione ADR)
+- SUPPLY riempie motrice + rimorchio, SHUTTLE consegna 17.500L
+
+### Tracking Eccezioni
+- Ogni driver puo usare max 2 eccezioni/settimana
+- Reset automatico ogni 5 giorni lavorativi
+- Visualizzazione nel frontend con badge amber
+
+---
+
+## ⚠️ Limitazioni Algoritmo Attuale
 
 ### 1. FULL_ROUND Non Eseguibile (9.5h > 9h ADR)
 
@@ -176,34 +193,16 @@ FULL_ROUND richiede 9.5h ma il limite ADR giornaliero e 9h.
 ```
 
 **Impatto**: Driver Tirano non possono eseguire `FULL_ROUND` senza eccezione ADR.
-**Workaround attuale**: Nessuno. FULL_ROUND e di fatto disabilitato.
 
-### 2. No Combo SUPPLY + SHUTTLE per Driver Tirano
+### 2. ~~No Combo SUPPLY + SHUTTLE~~ → RISOLTO
 
-```
-SUPPLY (6h) + SHUTTLE (4h) = 10h → supera limite 9h ADR
-```
+I driver Tirano ora possono fare SUPPLY+SHUTTLE (10h) usando l'eccezione ADR.
 
-**Impatto**: Un driver Tirano non puo fare SUPPLY e poi SHUTTLE nello stesso giorno.
-**Scenario**: Con 0 rimorchi pieni, i driver Tirano possono solo preparare risorse (SUPPLY) senza consegnare.
+### 3. ~~Eccezione ADR Solo per Driver Livigno~~ → RISOLTO
 
-### 3. Eccezione ADR Solo per Driver Livigno
-
-L'eccezione ADR (10h invece di 9h, max 2x/settimana) e implementata solo per:
-- `SUPPLY_FROM_LIVIGNO` (driver Livigno)
-
-**Non implementata** per:
-- `FULL_ROUND` (richiederebbe ~10.5h con eccezione)
-- Combo `SUPPLY + SHUTTLE` per driver Tirano
-
-### 4. Nessun Chaining Intra-Giornaliero
-
-L'algoritmo `calculateMaxCapacity` non considera sequenze complesse tipo:
-```
-SUPPLY (6h) → [motrice piena] → SHUTTLE (4h) = 17.500L
-```
-
-Il tracking delle risorse avviene a fine giornata, non durante.
+L'eccezione ADR e ora disponibile per tutti i driver:
+- Driver Livigno: `SUPPLY_FROM_LIVIGNO`
+- Driver Tirano: combo `SUPPLY + SHUTTLE`
 
 ---
 
@@ -211,13 +210,13 @@ Il tracking delle risorse avviene a fine giornata, non durante.
 
 Con **0 rimorchi pieni**, **4 vuoti**, **1 giorno**, **3 driver**:
 
-| Driver | Azione Possibile | Litri |
-|--------|------------------|-------|
-| Marco (Livigno) | `SUPPLY_FROM_LIVIGNO` (10h, eccezione ADR) | **17.500L** |
-| Luca (Tirano) | `FULL_ROUND` impossibile (9.5h > 9h) | 0L |
-| Paolo (Tirano) | `SUPPLY` (6h) prepara per domani | 0L |
+| Driver | Azione | Eccezione ADR | Litri |
+|--------|--------|---------------|-------|
+| Marco (Livigno) | `SUPPLY_FROM_LIVIGNO` | Si (1/2) | **17.500L** |
+| Luca (Tirano) | `SUPPLY+SHUTTLE` combo | Si (1/2) | **17.500L** |
+| Paolo (Tirano) | `SUPPLY+SHUTTLE` combo | Si (1/2) | **17.500L** |
 
-**MAX = 17.500L** (non 52.500L teorici)
+**MAX = 52.500L** (3 eccezioni ADR usate)
 
 ---
 

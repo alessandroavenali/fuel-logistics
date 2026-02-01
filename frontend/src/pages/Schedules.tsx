@@ -817,16 +817,22 @@ export default function Schedules() {
                       {maxCapacityResult.breakdown.tiranoDriverShuttles}
                     </span>
                   </div>
+                  <div className="bg-cyan-500/10 p-2 rounded border border-cyan-500/30">
+                    <span className="text-cyan-600">Shuttle da Livigno:</span>
+                    <span className="font-medium ml-2">
+                      {maxCapacityResult.breakdown.shuttleFromLivigno || 0}
+                    </span>
+                  </div>
+                  <div className="bg-pink-500/10 p-2 rounded border border-pink-500/30">
+                    <span className="text-pink-600">Supply da Livigno:</span>
+                    <span className="font-medium ml-2">
+                      {maxCapacityResult.breakdown.supplyFromLivigno || 0}
+                    </span>
+                  </div>
                   <div className="bg-muted/50 p-2 rounded">
                     <span className="text-muted-foreground">Supply Milano:</span>
                     <span className="font-medium ml-2">
                       {maxCapacityResult.breakdown.supplyTrips}
-                    </span>
-                  </div>
-                  <div className="bg-muted/50 p-2 rounded">
-                    <span className="text-muted-foreground">Full Round:</span>
-                    <span className="font-medium ml-2">
-                      {maxCapacityResult.breakdown.tiranoDriverFullRounds}
                     </span>
                   </div>
                   <div className="bg-muted/50 p-2 rounded">
@@ -837,6 +843,21 @@ export default function Schedules() {
                   </div>
                 </div>
               </div>
+
+              {/* Eccezioni ADR usate */}
+              {(maxCapacityResult.breakdown.adrExceptionsUsed || 0) > 0 && (
+                <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-amber-600 font-medium">Eccezioni ADR:</span>
+                    <span className="font-bold text-amber-700">
+                      {maxCapacityResult.breakdown.adrExceptionsUsed}
+                    </span>
+                    <span className="text-sm text-amber-600/80">
+                      (10h invece di 9h, max 2/settimana per driver)
+                    </span>
+                  </div>
+                </div>
+              )}
 
               {maxCapacityResult.constraints.length > 0 && (
                 <div className="space-y-2">

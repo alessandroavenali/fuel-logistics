@@ -1436,6 +1436,8 @@ export interface MaxCapacityResult {
     // Nuovi tipi per driver Livigno con motrice dedicata a Livigno
     shuttleFromLivigno: number; // SHUTTLE_FROM_LIVIGNO (4.5h)
     supplyFromLivigno: number;  // SUPPLY_FROM_LIVIGNO (10h)
+    // Tracciamento eccezioni ADR
+    adrExceptionsUsed: number;  // Totale eccezioni ADR usate (10h invece di 9h)
   };
   dailyCapacity: number; // maxLiters / daysWithDeliveries
   constraints: string[];
@@ -1683,9 +1685,11 @@ export async function calculateMaxCapacity(
     let totalSupplyFromLivigno = 0;
     let daysWithDeliveries = 0;
 
-    // Traccia eccezioni ADR usate per driver Livigno (max 2/settimana)
+    // Traccia eccezioni ADR usate (max 2/settimana per driver)
     // Resettiamo ogni 5 giorni lavorativi (approssimazione settimana)
     const livignoAdrExceptions = new Map<string, number>();
+    const tiranoAdrExceptions = new Map<string, number>();
+    let totalAdrExceptionsUsed = 0;
 
     for (let day = 0; day < numDays; day++) {
       const tiranoDriversToday = tiranoPerDay[day];
@@ -1696,6 +1700,7 @@ export async function calculateMaxCapacity(
       // Reset eccezioni ADR ogni 5 giorni (nuova settimana lavorativa)
       if (day > 0 && day % 5 === 0) {
         livignoAdrExceptions.clear();
+        tiranoAdrExceptions.clear();
       }
 
       // Stato ore driver Tirano per oggi
@@ -1771,6 +1776,7 @@ export async function calculateMaxCapacity(
             // Usa l'eccezione ADR: estende da 9h a 10h
             livignoDriverHours.set(driverId, 0); // Consuma tutta la giornata
             livignoAdrExceptions.set(driverId, usedExceptions + 1);
+            totalAdrExceptionsUsed++;
             emptyTrailers--;
             emptyTanksAtTirano--;
             pendingFullTrailers++;
@@ -1830,6 +1836,7 @@ export async function calculateMaxCapacity(
               // Motrice resta a Livigno
               livignoDriverHours.set(driverId, 0);  // Giornata finita (10h)
               livignoAdrExceptions.set(driverId, usedExceptions + 1);
+              totalAdrExceptionsUsed++;
               totalSupplyFromLivigno++;
               litersToday += LITERS_PER_INTEGRATED_TANK;
               madeProgress = true;
@@ -1891,7 +1898,34 @@ export async function calculateMaxCapacity(
             break;
           }
 
-          // PRIORITÀ 3: FULL_ROUND
+          // PRIORITÀ 3: SUPPLY+SHUTTLE COMBO (10h con eccezione ADR)
+          // Driver Tirano può fare SUPPLY (6h) + SHUTTLE (4h) = 10h con eccezione
+          // Richiede: rimorchio vuoto, motrice, eccezione ADR disponibile
+          const HOURS_SUPPLY_SHUTTLE_COMBO = HOURS_SUPPLY + HOURS_SHUTTLE; // 6h + 4h = 10h
+          const tiranoUsedExceptions = tiranoAdrExceptions.get(driverId) || 0;
+          if (emptyTrailers > 0 && emptyTanksAtTirano > 0 &&
+              hoursLeft >= MAX_DAILY_HOURS && tiranoUsedExceptions < MAX_ADR_EXTENDED_PER_WEEK) {
+            // SUPPLY: riempie motrice + rimorchio
+            emptyTrailers--;
+            emptyTanksAtTirano--;
+            // Il rimorchio torna pieno a Tirano (disponibile per altri)
+            fullTrailers++;
+            // La motrice fa subito SHUTTLE e torna vuota
+            emptyTanksAtTirano++;
+
+            tiranoDriverHours.set(driverId, 0); // Giornata finita (10h con eccezione)
+            tiranoAdrExceptions.set(driverId, tiranoUsedExceptions + 1);
+            totalAdrExceptionsUsed++;
+
+            // Conta come SUPPLY + SHUTTLE separati per il breakdown
+            totalSupply++;
+            totalShuttle++;
+            litersToday += LITERS_PER_INTEGRATED_TANK; // 17.500L consegnati
+            madeProgress = true;
+            break;
+          }
+
+          // PRIORITÀ 4: FULL_ROUND (9.5h - difficile senza eccezione)
           if (hoursLeft >= HOURS_FULL_ROUND) {
             tiranoDriverHours.set(driverId, hoursLeft - HOURS_FULL_ROUND);
             totalFullRound++;
@@ -1917,6 +1951,7 @@ export async function calculateMaxCapacity(
         livignoSupplyTrips: totalLivignoSupply,
         shuttleFromLivigno: totalShuttleFromLivigno,
         supplyFromLivigno: totalSupplyFromLivigno,
+        adrExceptionsUsed: totalAdrExceptionsUsed,
       },
       daysWithDeliveries,
     };
@@ -1978,6 +2013,7 @@ export async function calculateMaxCapacity(
       transferTrips: bestResult.breakdown.transferTrips,
       shuttleFromLivigno: bestResult.breakdown.shuttleFromLivigno || 0,
       supplyFromLivigno: bestResult.breakdown.supplyFromLivigno || 0,
+      adrExceptionsUsed: bestResult.breakdown.adrExceptionsUsed || 0,
     },
     dailyCapacity: bestResult.daysWithDeliveries > 0
       ? Math.floor(bestResult.totalLiters / bestResult.daysWithDeliveries)

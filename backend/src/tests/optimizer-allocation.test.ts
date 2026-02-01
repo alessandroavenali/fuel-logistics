@@ -786,7 +786,7 @@ async function runScenario6(): Promise<ScenarioResult> {
   - 1 motrice Livigno, 3 motrici Tirano
   - 3 driver RESIDENT: Marco (Livigno), Luca, Paolo (Tirano)
 
-  CALCOLO DATO L'ALGORITMO ATTUALE:
+  CALCOLO CON ECCEZIONI ADR (NUOVO!):
   ┌──────────┬─────────────────────────────────────────┬───────────┐
   │ Driver   │ Azione                                  │ Litri     │
   ├──────────┼─────────────────────────────────────────┼───────────┤
@@ -795,26 +795,22 @@ async function runScenario6(): Promise<ScenarioResult> {
   │          │   riempie tutto, lascia rimorchio pieno │           │
   │          │   a Tirano, sale a Livigno con motrice  │           │
   ├──────────┼─────────────────────────────────────────┼───────────┤
-  │ Luca     │ FULL_ROUND (9.5h > 9h ADR limit) → FAIL │ 0L        │
-  │          │ SUPPLY (6h) prepara rimorchio per domani│           │
+  │ Luca     │ SUPPLY+SHUTTLE combo (10h, eccezione!)  │ 17.500L   │
+  │          │ → SUPPLY(6h) + SHUTTLE(4h) con ADR exc. │           │
   ├──────────┼─────────────────────────────────────────┼───────────┤
-  │ Paolo    │ FULL_ROUND (9.5h > 9h ADR limit) → FAIL │ 0L        │
-  │          │ SUPPLY (6h) prepara rimorchio per domani│           │
+  │ Paolo    │ SUPPLY+SHUTTLE combo (10h, eccezione!)  │ 17.500L   │
+  │          │ → SUPPLY(6h) + SHUTTLE(4h) con ADR exc. │           │
   └──────────┴─────────────────────────────────────────┴───────────┘
 
-  MAX ATTESO = 17.500L (solo Marco può consegnare)
-
-  NOTA: Limitazioni algoritmo attuale:
-  - FULL_ROUND richiede 9.5h ma ADR limit è 9h
-  - SUPPLY+SHUTTLE per Tirano (6h+4h=10h) non implementato con ADR exception
+  MAX ATTESO = 52.500L (3 driver × 17.500L con eccezioni ADR)
   `);
 
   const result: ScenarioResult = {
     name: 'Scenario 6: 0 rimorchi pieni',
     passed: false,
     expected: {
-      maxLiters: 17500,
-      description: 'Solo Marco (SUPPLY_FROM_LIVIGNO) - Luca/Paolo non possono fare FULL_ROUND (9.5h > 9h)',
+      maxLiters: 52500,
+      description: 'Marco (SUPPLY_FROM_LIV) + Luca (SUPPLY+SHUTTLE) + Paolo (SUPPLY+SHUTTLE) con eccezioni ADR',
     },
     actual: {
       maxLiters: 0,
@@ -859,30 +855,27 @@ async function runScenario6(): Promise<ScenarioResult> {
   };
 
   console.log(`\nRisultato APP:`);
-  console.log(`  - MAX: ${maxResult.maxLiters.toLocaleString()}L (atteso: 17.500L)`);
-  console.log(`  - SUPPLY_FROM_LIVIGNO: ${maxResult.breakdown.supplyFromLivigno} (atteso: 1)`);
-  console.log(`  - FULL_ROUND: ${maxResult.breakdown.tiranoDriverFullRounds} (atteso: 0 - richiede 9.5h)`);
-  console.log(`  - SUPPLY Tirano: ${maxResult.breakdown.supplyTrips}`);
-  console.log(`  - SHUTTLE totali: ${maxResult.breakdown.tiranoDriverShuttles + maxResult.breakdown.shuttleFromLivigno}`);
+  console.log(`  - MAX: ${maxResult.maxLiters.toLocaleString()}L (atteso: 52.500L)`);
+  console.log(`  - SUPPLY_FROM_LIVIGNO: ${maxResult.breakdown.supplyFromLivigno} (atteso: 1 - Marco)`);
+  console.log(`  - SUPPLY+SHUTTLE combo: ${maxResult.breakdown.supplyTrips} SUPPLY + ${maxResult.breakdown.tiranoDriverShuttles} SHUTTLE`);
+  console.log(`  - Eccezioni ADR usate: ${maxResult.breakdown.adrExceptionsUsed} (atteso: 3)`);
 
   // Verifica: con 0 rimorchi pieni ma 4 vuoti e motrici disponibili
-  // - Marco (Livigno): SUPPLY_FROM_LIVIGNO → 17.500L
-  // - Luca (Tirano): FULL_ROUND richiede 9.5h > 9h ADR → 0L
-  // - Paolo (Tirano): FULL_ROUND richiede 9.5h > 9h ADR → 0L
-  // MAX atteso = 17.500L
+  // - Marco (Livigno): SUPPLY_FROM_LIVIGNO → 17.500L (1 eccezione ADR)
+  // - Luca (Tirano): SUPPLY+SHUTTLE combo → 17.500L (1 eccezione ADR)
+  // - Paolo (Tirano): SUPPLY+SHUTTLE combo → 17.500L (1 eccezione ADR)
+  // MAX atteso = 52.500L (3 eccezioni ADR)
 
   if (maxResult.maxLiters === result.expected.maxLiters) {
     result.passed = true;
     console.log(`\n✅ PASSED: MAX = ${result.expected.maxLiters.toLocaleString()}L come atteso`);
-    if (maxResult.breakdown.supplyFromLivigno === 1) {
-      console.log(`  ✅ SUPPLY_FROM_LIVIGNO eseguito correttamente da Marco`);
-    }
+    console.log(`  ✅ Eccezioni ADR usate correttamente: ${maxResult.breakdown.adrExceptionsUsed}`);
   } else {
     result.issues.push(`MAX ${maxResult.maxLiters}L ≠ atteso ${result.expected.maxLiters}L`);
     console.log(`\n❌ FAILED: MAX ${maxResult.maxLiters.toLocaleString()}L ≠ atteso ${result.expected.maxLiters.toLocaleString()}L`);
 
-    if (maxResult.breakdown.supplyFromLivigno === 0) {
-      console.log(`  ⚠️  BUG: SUPPLY_FROM_LIVIGNO non viene eseguito (Marco dovrebbe farlo)`);
+    if (maxResult.breakdown.adrExceptionsUsed < 3) {
+      console.log(`  ⚠️  Solo ${maxResult.breakdown.adrExceptionsUsed}/3 eccezioni ADR usate`);
     }
   }
 
