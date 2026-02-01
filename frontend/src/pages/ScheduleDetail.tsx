@@ -1254,8 +1254,11 @@ export default function ScheduleDetail() {
                   <div className="text-sm space-y-1">
                     <p>Tipo viaggio: <Badge className={`${getTripTypeBadge(selectedTrip.tripType).className} text-xs`}>{getTripTypeBadge(selectedTrip.tripType).label}</Badge></p>
                     <p>Totale litri: <span className="font-medium">{formatLiters(
-                      // FULL_ROUND e SHUTTLE usano cisterna integrata (17.500L), non rimorchi
-                      selectedTrip.tripType === 'FULL_ROUND' || selectedTrip.tripType === 'SHUTTLE_LIVIGNO'
+                      // Tipi che consegnano cisterna integrata (17.500L) a Livigno
+                      selectedTrip.tripType === 'FULL_ROUND' ||
+                      selectedTrip.tripType === 'SHUTTLE_LIVIGNO' ||
+                      selectedTrip.tripType === 'SHUTTLE_FROM_LIVIGNO' ||
+                      selectedTrip.tripType === 'SUPPLY_FROM_LIVIGNO'
                         ? 17500
                         : selectedTrip.trailers?.reduce((sum, t) => sum + t.litersLoaded, 0) || 0
                     )}</span></p>
