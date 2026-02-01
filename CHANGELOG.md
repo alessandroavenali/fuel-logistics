@@ -95,11 +95,42 @@ Legenda aggiornata con "Shuttle LIV" e "Supply LIV".
 - **totalLiters** ora conta solo i litri effettivamente consegnati a Livigno
 - Prima contava tutti i litri movimentati (inclusi SUPPLY_MILANO e TRANSFER_TIRANO che non consegnano)
 
-### Known Issues
+### Fixed - Allocazione Driver Ottimizzata (2026-02-01)
 
-#### Allocazione Driver Non Ottimale
-L'optimizer è "greedy": usa tutti i driver disponibili per massimizzare le consegne del giorno corrente, anche quando alcuni driver sarebbero più utili a fare SUPPLY per preparare il giorno dopo.
+#### Problema Risolto
+L'optimizer era "greedy": usava tutti i driver per massimizzare le consegne del giorno corrente, anche quando alcuni driver sarebbero stati più utili a fare SUPPLY per preparare rimorchi per il giorno dopo.
 
-**Esempio**: Con 4 rimorchi pieni e 3 driver, bastano 2 driver per svuotare i rimorchi. Il terzo dovrebbe fare SUPPLY, ma attualmente fa TRANSFER (inutile).
+**Esempio prima del fix**: Con 4 rimorchi pieni e 3 driver (Marco Livigno, Luca e Paolo Tirano), Paolo faceva TRANSFER inutile invece di SUPPLY.
 
-**TODO**: Calcolare quanti driver servono per le consegne e allocare i driver "in eccesso" a SUPPLY.
+#### Soluzione Implementata
+
+**1. Pre-fase: Calcolo Driver in Eccesso**
+All'inizio di ogni giornata, l'optimizer calcola:
+- Quanti rimorchi pieni possono consumare i driver Livigno (con SHUTTLE_FROM_LIVIGNO)
+- Quanti rimorchi restano per i driver Tirano
+- Quanti driver Tirano servono (ogni driver fa ~2 cicli TRANSFER+SHUTTLE/giorno)
+- I driver Tirano "in eccesso" vengono marcati per fare SUPPLY
+
+**2. Logica Decisionale Modificata**
+I driver in eccesso:
+- Priorità assoluta a SUPPLY (se ci sono rimorchi vuoti)
+- Se non ci sono rimorchi vuoti, aspettano che diventino disponibili
+- NON possono fare TRANSFER (rimorchi pieni riservati agli altri driver)
+
+**3. Tracking Temporale Preciso dei Rimorchi Vuoti**
+Aggiunta mappa `trailerEmptyAvailableAt` che traccia quando i rimorchi diventeranno vuoti:
+- **TRANSFER_TIRANO**: rimorchio vuoto al `returnTime` (dopo 30 min)
+- **SHUTTLE_FROM_LIVIGNO**: rimorchio vuoto dopo Livigno→Tirano + TRANSFER (dopo 120 min)
+
+I driver in eccesso aspettano il momento esatto in cui il primo rimorchio diventa vuoto.
+
+#### Esempio Flusso Corretto
+
+| Tempo | Marco (Livigno) | Luca (Tirano) | Paolo (excess) |
+|-------|-----------------|---------------|----------------|
+| 06:00 | SHUTTLE_FROM_LIVIGNO | TRANSFER | _aspetta_ |
+| 06:30 | ... | SHUTTLE | **SUPPLY** (rimorchio vuoto!) |
+| 10:30 | SHUTTLE #2 | TRANSFER #2 | ... |
+| 12:30 | ... | SHUTTLE #2 | SUPPLY finito |
+
+**Risultato**: Paolo fa SUPPLY alle 06:30 (appena il rimorchio di Luca diventa vuoto), preparando risorse per il giorno dopo.
