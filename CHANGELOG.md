@@ -80,3 +80,26 @@ Per un driver Livigno con motrice a Livigno:
 - **SUPPLY_FROM_LIVIGNO**: Badge e barra colore **pink**
 
 Legenda aggiornata con "Shuttle LIV" e "Supply LIV".
+
+### Fixed - Debug Session 2026-02-01
+
+#### Frontend
+- **ScheduleDetail.tsx**: Il calcolo litri nel pannello dettaglio viaggio ora include `SHUTTLE_FROM_LIVIGNO` e `SUPPLY_FROM_LIVIGNO` (prima mostrava 0L invece di 17.500L)
+
+#### Backend - calculateMaxCapacity
+- Traccia separatamente motrici a Tirano vs Livigno
+- `shuttleFromLivigno` e `supplyFromLivigno` nel breakdown ora vengono popolati correttamente (prima erano sempre 0)
+- Aggiunta logica per driver Livigno con motrice dedicata a Livigno
+
+#### Backend - optimizeSchedule
+- **totalLiters** ora conta solo i litri effettivamente consegnati a Livigno
+- Prima contava tutti i litri movimentati (inclusi SUPPLY_MILANO e TRANSFER_TIRANO che non consegnano)
+
+### Known Issues
+
+#### Allocazione Driver Non Ottimale
+L'optimizer è "greedy": usa tutti i driver disponibili per massimizzare le consegne del giorno corrente, anche quando alcuni driver sarebbero più utili a fare SUPPLY per preparare il giorno dopo.
+
+**Esempio**: Con 4 rimorchi pieni e 3 driver, bastano 2 driver per svuotare i rimorchi. Il terzo dovrebbe fare SUPPLY, ma attualmente fa TRANSFER (inutile).
+
+**TODO**: Calcolare quanti driver servono per le consegne e allocare i driver "in eccesso" a SUPPLY.
