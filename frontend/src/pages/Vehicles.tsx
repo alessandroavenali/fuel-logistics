@@ -53,13 +53,13 @@ export default function Vehicles() {
   } = useForm<VehicleFormData>({
     resolver: zodResolver(vehicleSchema),
     defaultValues: {
-      maxTrailers: 2,
+      maxTrailers: 1,
     },
   });
 
   const openCreateDialog = () => {
     setEditingVehicle(null);
-    reset({ plate: '', name: '', maxTrailers: 2 });
+    reset({ plate: '', name: '', maxTrailers: 1 });
     setIsDialogOpen(true);
   };
 

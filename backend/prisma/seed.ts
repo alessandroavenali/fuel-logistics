@@ -97,16 +97,16 @@ async function main() {
   // FG001AA base Livigno, altri base Tirano
   const vehicles = await Promise.all([
     prisma.vehicle.create({
-      data: { plate: 'FG001AA', name: 'Motrice Alfa', maxTrailers: 2, baseLocationId: livigno.id },
+      data: { plate: 'FG001AA', name: 'Motrice Alfa', maxTrailers: 1, baseLocationId: livigno.id },
     }),
     prisma.vehicle.create({
-      data: { plate: 'FG002BB', name: 'Motrice Beta', maxTrailers: 2, baseLocationId: tirano.id },
+      data: { plate: 'FG002BB', name: 'Motrice Beta', maxTrailers: 1, baseLocationId: tirano.id },
     }),
     prisma.vehicle.create({
-      data: { plate: 'FG003CC', name: 'Motrice Gamma', maxTrailers: 2, baseLocationId: tirano.id },
+      data: { plate: 'FG003CC', name: 'Motrice Gamma', maxTrailers: 1, baseLocationId: tirano.id },
     }),
     prisma.vehicle.create({
-      data: { plate: 'FG004DD', name: 'Motrice Delta', maxTrailers: 2, baseLocationId: tirano.id },
+      data: { plate: 'FG004DD', name: 'Motrice Delta', maxTrailers: 1, baseLocationId: tirano.id },
     }),
   ]);
 

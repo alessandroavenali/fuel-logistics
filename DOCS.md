@@ -149,7 +149,7 @@ fuel-logistics/
 **Campi**:
 - `plate`: Targa (univoca)
 - `name`: Nome identificativo (opzionale)
-- `maxTrailers`: Numero massimo rimorchi trainabili (default: 2)
+- `maxTrailers`: Numero massimo rimorchi trainabili (default: 1)
 - `isActive`: Stato attivo/inattivo
 
 **Funzionalità**:
