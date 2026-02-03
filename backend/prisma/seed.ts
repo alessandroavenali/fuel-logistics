@@ -111,19 +111,16 @@ async function main() {
 
   console.log('Created 4 vehicles:', vehicles.map(v => v.plate).join(', '));
 
-  // Create 8 trailers (cisterne) - 17,500L each
+  // Create 4 trailers (rimorchi) - 17,500L each
+  // Le motrici hanno già cisterna integrata da 17,500L, i rimorchi sono aggiuntivi
   const trailers = await Promise.all([
-    prisma.trailer.create({ data: { plate: 'CIS-001', name: 'Cisterna 1', capacityLiters: 17500 } }),
-    prisma.trailer.create({ data: { plate: 'CIS-002', name: 'Cisterna 2', capacityLiters: 17500 } }),
-    prisma.trailer.create({ data: { plate: 'CIS-003', name: 'Cisterna 3', capacityLiters: 17500 } }),
-    prisma.trailer.create({ data: { plate: 'CIS-004', name: 'Cisterna 4', capacityLiters: 17500 } }),
-    prisma.trailer.create({ data: { plate: 'CIS-005', name: 'Cisterna 5', capacityLiters: 17500 } }),
-    prisma.trailer.create({ data: { plate: 'CIS-006', name: 'Cisterna 6', capacityLiters: 17500 } }),
-    prisma.trailer.create({ data: { plate: 'CIS-007', name: 'Cisterna 7', capacityLiters: 17500 } }),
-    prisma.trailer.create({ data: { plate: 'CIS-008', name: 'Cisterna 8', capacityLiters: 17500 } }),
+    prisma.trailer.create({ data: { plate: 'RIM-001', name: 'Rimorchio 1', capacityLiters: 17500 } }),
+    prisma.trailer.create({ data: { plate: 'RIM-002', name: 'Rimorchio 2', capacityLiters: 17500 } }),
+    prisma.trailer.create({ data: { plate: 'RIM-003', name: 'Rimorchio 3', capacityLiters: 17500 } }),
+    prisma.trailer.create({ data: { plate: 'RIM-004', name: 'Rimorchio 4', capacityLiters: 17500 } }),
   ]);
 
-  console.log('Created 8 trailers (17,500L each):', trailers.map(t => t.plate).join(', '));
+  console.log('Created 4 trailers (17,500L each):', trailers.map(t => t.plate).join(', '));
 
   // Create 5 drivers con base operativa
   // Marco Bianchi -> base Livigno (unico driver di Livigno, max 3 shuttle/giorno)
@@ -233,8 +230,8 @@ async function main() {
   console.log('\nSummary:');
   console.log('  - 3 locations (Milano, Tirano, Livigno)');
   console.log('  - 4 routes (Tirano-Livigno: 90min, Tirano-Milano: 150min)');
-  console.log('  - 4 vehicles (motrici) - Base: Tirano');
-  console.log('  - 8 trailers (cisterne 17,500L) - Base: Tirano');
+  console.log('  - 4 vehicles (motrici con cisterna integrata 17,500L)');
+  console.log('  - 4 trailers (rimorchi 17,500L)');
   console.log('  - 5 drivers:');
   console.log('      1 base Livigno (Marco Bianchi - max 3 shuttle/giorno)');
   console.log('      4 base Tirano (mix SUPPLY/SHUTTLE)');
