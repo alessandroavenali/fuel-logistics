@@ -14,7 +14,7 @@ import { cn } from '@/lib/utils';
 const navigation = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
   { name: 'Motrici', href: '/vehicles', icon: Truck },
-  { name: 'Cisterne', href: '/trailers', icon: Container },
+  { name: 'Rimorchi', href: '/trailers', icon: Container },
   { name: 'Autisti', href: '/drivers', icon: Users },
   { name: 'Luoghi', href: '/locations', icon: MapPin },
   { name: 'Percorsi', href: '/routes', icon: Route },

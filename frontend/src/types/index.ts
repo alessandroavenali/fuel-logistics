@@ -23,7 +23,7 @@ export interface Vehicle {
   plate: string;
   name?: string;
   maxTrailers: number;
-  integratedTankLiters: number;  // Cisterna integrata (non staccabile)
+  integratedTankLiters: number;  // Serbatoio integrato (non staccabile)
   baseLocationId?: string;
   baseLocation?: Location;
   isActive: boolean;
@@ -108,7 +108,7 @@ export interface ScheduleVehicleState {
   scheduleId: string;
   vehicleId: string;
   locationId: string;
-  isTankFull: boolean;  // Stato cisterna integrata (piena/vuota)
+  isTankFull: boolean;  // Stato serbatoio integrato (piena/vuota)
   createdAt: string;
   vehicle?: Vehicle;
   location?: Location;
@@ -219,7 +219,7 @@ export interface CreateScheduleInput {
   vehicleStates?: {
     vehicleId: string;
     locationId: string;
-    isTankFull?: boolean;  // Stato cisterna integrata (piena/vuota)
+    isTankFull?: boolean;  // Stato serbatoio integrato (piena/vuota)
   }[];
 }
 
@@ -347,7 +347,7 @@ export interface VehicleStatus {
   plate: string;
   name: string | null;
   maxTrailers: number;
-  integratedTankLiters: number;  // Cisterna integrata
+  integratedTankLiters: number;  // Serbatoio integrato
   isActive: boolean;
   status: 'AVAILABLE' | 'IN_USE';
   currentTrip: {

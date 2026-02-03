@@ -150,11 +150,11 @@ export default function ScheduleDetail() {
   }, [routes]);
 
   // Calculate trip timeline based on trip type and routes
-  // TIPI DI VIAGGIO (nuovo modello con cisterna integrata):
-  // - SHUTTLE_LIVIGNO: Tirano -> Livigno -> Tirano (4.5h, solo motrice - cisterna integrata)
+  // TIPI DI VIAGGIO (nuovo modello con serbatoio integrato):
+  // - SHUTTLE_LIVIGNO: Tirano -> Livigno -> Tirano (4.5h, solo motrice - serbatoio integrato)
   // - SUPPLY_MILANO: Tirano -> Milano -> Tirano (6h, motrice + 1 rimorchio)
   // - FULL_ROUND: Tirano -> Milano -> Tirano -> Livigno -> Tirano (9h, solo motrice)
-  // - TRANSFER_TIRANO: Sversamento rimorchio pieno -> cisterna integrata (30 min)
+  // - TRANSFER_TIRANO: Sversamento rimorchio pieno -> serbatoio integrato (30 min)
   const calculateTimeline = useMemo(() => {
     return (trip: Trip | null) => {
       if (!trip || !routeMap || !sourceLocation || !parkingLocation || !destinationLocation) {
@@ -187,15 +187,15 @@ export default function ScheduleDetail() {
 
       const tripType = trip.tripType || 'FULL_ROUND';
 
-      // === SHUTTLE_LIVIGNO: Tirano -> Livigno -> Tirano (solo motrice, cisterna integrata) ===
+      // === SHUTTLE_LIVIGNO: Tirano -> Livigno -> Tirano (solo motrice, serbatoio integrato) ===
       if (tripType === 'SHUTTLE_LIVIGNO') {
-        // 1. Partenza da Tirano con cisterna integrata piena (senza rimorchio!)
+        // 1. Partenza da Tirano con serbatoio integrato piena (senza rimorchio!)
         timeline.push({
           time: new Date(currentTime),
           location: parkingLocation.name,
-          action: 'Partenza (cisterna integrata piena)',
+          action: 'Partenza (serbatoio integrato piena)',
           icon: 'start',
-          // No trailers - solo cisterna integrata
+          // No trailers - solo serbatoio integrato
         });
 
         // 2. Tirano -> Livigno (2h)
@@ -207,11 +207,11 @@ export default function ScheduleDetail() {
           icon: 'arrive',
         });
 
-        // 3. Scarico cisterna integrata
+        // 3. Scarico serbatoio integrato
         timeline.push({
           time: new Date(currentTime),
           location: destinationLocation.name,
-          action: 'Scarico cisterna integrata',
+          action: 'Scarico serbatoio integrato',
           icon: 'unload',
           details: '17.500 L',
         });
@@ -229,7 +229,7 @@ export default function ScheduleDetail() {
         timeline.push({
           time: new Date(currentTime),
           location: parkingLocation.name,
-          action: 'Fine turno (cisterna integrata vuota)',
+          action: 'Fine turno (serbatoio integrato vuota)',
           icon: 'end',
         });
       }
@@ -255,7 +255,7 @@ export default function ScheduleDetail() {
           trailers: getTrailerPlates(allTrailers, false),
         });
 
-        // 3. Carico cisterna integrata + rimorchio (35.000L totali)
+        // 3. Carico serbatoio integrato + rimorchio (35.000L totali)
         timeline.push({
           time: new Date(currentTime),
           location: sourceLocation.name,
@@ -285,7 +285,7 @@ export default function ScheduleDetail() {
         });
       }
 
-      // === TRANSFER_TIRANO: Sversamento rimorchio pieno -> cisterna integrata ===
+      // === TRANSFER_TIRANO: Sversamento rimorchio pieno -> serbatoio integrato ===
       else if (tripType === 'TRANSFER_TIRANO') {
         const TRANSFER_TIME = 30;
 
@@ -302,7 +302,7 @@ export default function ScheduleDetail() {
         timeline.push({
           time: new Date(currentTime),
           location: parkingLocation.name,
-          action: 'Sversamento in cisterna integrata',
+          action: 'Sversamento in serbatoio integrato',
           icon: 'unload',
           details: `${totalLiters.toLocaleString()} L`,
           trailers: getTrailerPlates(allTrailers, false),
@@ -320,7 +320,7 @@ export default function ScheduleDetail() {
       }
 
       // === FULL_ROUND: Tirano -> Milano -> Tirano -> Livigno -> Tirano ===
-      // Usa solo la cisterna integrata della motrice (17.500L), senza rimorchi
+      // Usa solo la serbatoio integrato della motrice (17.500L), senza rimorchi
       else if (tripType === 'FULL_ROUND') {
         const INTEGRATED_TANK_LITERS = 17500;
 
@@ -341,11 +341,11 @@ export default function ScheduleDetail() {
           icon: 'arrive',
         });
 
-        // 3. Carico cisterna integrata a Milano
+        // 3. Carico serbatoio integrato a Milano
         timeline.push({
           time: new Date(currentTime),
           location: sourceLocation.name,
-          action: 'Carico cisterna integrata',
+          action: 'Carico serbatoio integrato',
           icon: 'load',
           details: `${INTEGRATED_TANK_LITERS.toLocaleString()} L`,
         });
@@ -383,11 +383,11 @@ export default function ScheduleDetail() {
           icon: 'arrive',
         });
 
-        // 6. Scarico cisterna integrata a Livigno
+        // 6. Scarico serbatoio integrato a Livigno
         timeline.push({
           time: new Date(currentTime),
           location: destinationLocation.name,
-          action: 'Scarico cisterna integrata',
+          action: 'Scarico serbatoio integrato',
           icon: 'unload',
           details: `${INTEGRATED_TANK_LITERS.toLocaleString()} L`,
         });
@@ -434,7 +434,7 @@ export default function ScheduleDetail() {
           trailers: getTrailerPlates(allTrailers, true),
         });
 
-        // 3. TRANSFER: rimorchio pieno -> cisterna integrata
+        // 3. TRANSFER: rimorchio pieno -> serbatoio integrato
         timeline.push({
           time: new Date(currentTime),
           location: parkingLocation.name,
@@ -465,7 +465,7 @@ export default function ScheduleDetail() {
         timeline.push({
           time: new Date(currentTime),
           location: destinationLocation.name,
-          action: 'Scarico cisterna integrata',
+          action: 'Scarico serbatoio integrato',
           icon: 'unload',
           details: `${INTEGRATED_TANK_LITERS.toLocaleString()} L`,
         });
@@ -525,7 +525,7 @@ export default function ScheduleDetail() {
         timeline.push({
           time: new Date(currentTime),
           location: sourceLocation.name,
-          action: 'Carico (cisterna + rimorchio)',
+          action: 'Carico (serbatoio + rimorchio)',
           icon: 'load',
           details: '35.000 L totali',
           trailers: getTrailerPlates(allTrailers, true),
@@ -570,7 +570,7 @@ export default function ScheduleDetail() {
         timeline.push({
           time: new Date(currentTime),
           location: destinationLocation.name,
-          action: 'Scarico cisterna integrata',
+          action: 'Scarico serbatoio integrato',
           icon: 'unload',
           details: `${INTEGRATED_TANK_LITERS.toLocaleString()} L`,
         });
@@ -994,7 +994,7 @@ export default function ScheduleDetail() {
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-medium flex items-center gap-2">
               <Container className="h-4 w-4" />
-              Stato Cisterne
+              Stato Rimorchi
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -1275,7 +1275,7 @@ export default function ScheduleDetail() {
                   <div className="text-sm space-y-1">
                     <p>Tipo viaggio: <Badge className={`${getTripTypeBadge(selectedTrip.tripType).className} text-xs`}>{getTripTypeBadge(selectedTrip.tripType).label}</Badge></p>
                     <p>Totale litri: <span className="font-medium">{formatLiters(
-                      // Tipi che consegnano cisterna integrata (17.500L) a Livigno
+                      // Tipi che consegnano serbatoio integrato (17.500L) a Livigno
                       selectedTrip.tripType === 'FULL_ROUND' ||
                       selectedTrip.tripType === 'SHUTTLE_LIVIGNO' ||
                       selectedTrip.tripType === 'SHUTTLE_FROM_LIVIGNO' ||
@@ -1479,7 +1479,7 @@ export default function ScheduleDetail() {
                 {schedule.status === 'DRAFT' && selectedVehicle && tripForm.trailers.length < selectedVehicle.maxTrailers && (
                   <Button type="button" variant="outline" size="sm" onClick={handleAddTrailer}>
                     <Plus className="h-4 w-4 mr-1" />
-                    Aggiungi Cisterna
+                    Aggiungi Rimorchio
                   </Button>
                 )}
               </div>
@@ -1492,7 +1492,7 @@ export default function ScheduleDetail() {
                 <Card key={index} className="p-4">
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium">Cisterna {index + 1}</span>
+                      <span className="text-sm font-medium">Rimorchio {index + 1}</span>
                       {schedule.status === 'DRAFT' && (
                         <Button
                           type="button"
@@ -1560,7 +1560,7 @@ export default function ScheduleDetail() {
                           className="rounded border-input"
                         />
                         <ArrowUp className="h-4 w-4 text-purple-600" />
-                        Ritira cisterna da Tirano
+                        Ritira rimorchio da Tirano
                       </label>
 
                       {!trailer.isPickup && parkingLocation && (
@@ -1577,7 +1577,7 @@ export default function ScheduleDetail() {
                             className="rounded border-input"
                           />
                           <ArrowDown className="h-4 w-4 text-orange-600" />
-                          Lascia cisterna a Tirano
+                          Lascia rimorchio a Tirano
                         </label>
                       )}
                     </div>
@@ -1587,7 +1587,7 @@ export default function ScheduleDetail() {
 
               {tripForm.vehicleId && tripForm.trailers.length === 0 && (
                 <p className="text-sm text-muted-foreground text-center py-4">
-                  Nessuna cisterna aggiunta. Clicca "Aggiungi Cisterna" per iniziare.
+                  Nessun rimorchio aggiunto. Clicca "Aggiungi Rimorchio" per iniziare.
                 </p>
               )}
             </div>

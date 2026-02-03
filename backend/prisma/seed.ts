@@ -93,7 +93,7 @@ async function main() {
 
   console.log('Created 4 routes');
 
-  // Create 4 vehicles (motrici con cisterna integrata 17,500L)
+  // Create 4 vehicles (motrici con serbatoio integrato 17,500L)
   // FG001AA base Livigno, altri base Tirano
   const vehicles = await Promise.all([
     prisma.vehicle.create({
@@ -113,7 +113,7 @@ async function main() {
   console.log('Created 4 vehicles:', vehicles.map(v => v.plate).join(', '));
 
   // Create 4 trailers (rimorchi) - 17,500L each, tutti base Tirano
-  // Le motrici hanno già cisterna integrata da 17,500L, i rimorchi sono aggiuntivi
+  // Le motrici hanno già serbatoio integrato da 17,500L, i rimorchi sono aggiuntivi
   const trailers = await Promise.all([
     prisma.trailer.create({ data: { plate: 'RIM-001', name: 'Rimorchio 1', capacityLiters: 17500, baseLocationId: tirano.id } }),
     prisma.trailer.create({ data: { plate: 'RIM-002', name: 'Rimorchio 2', capacityLiters: 17500, baseLocationId: tirano.id } }),

@@ -149,7 +149,7 @@ export interface MaxCapacityResult {
     tiranoDriverShuttles: number;
     tiranoDriverFullRounds: number;
     supplyTrips: number;
-    transferTrips: number;          // Sversamenti rimorchio → cisterna integrata
+    transferTrips: number;          // Sversamenti rimorchio → serbatoio integrato
     shuttleFromLivigno: number;     // SHUTTLE_FROM_LIVIGNO (4.5h)
     supplyFromLivigno: number;      // SUPPLY_FROM_LIVIGNO (10h)
     adrExceptionsUsed: number;      // Eccezioni ADR (10h invece di 9h)

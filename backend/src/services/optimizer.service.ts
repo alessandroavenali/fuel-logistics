@@ -7,7 +7,7 @@ import { validateSingleTrip, ADR_LIMITS } from './adrValidator.service.js';
 
 // Tempi fissi per operazioni (in minuti)
 const LOADING_TIME_SUPPLY = 60;      // Tempo carico a Milano (motrice 17.500L + rimorchio 17.500L = 35.000L)
-const LOADING_TIME_SINGLE = 30;      // Tempo carico a Milano (solo cisterna integrata 17.500L)
+const LOADING_TIME_SINGLE = 30;      // Tempo carico a Milano (solo serbatoio integrato 17.500L)
 const UNLOADING_TIME_LIVIGNO = 30;   // Tempo scarico a Livigno
 const TRANSFER_TIME_TIRANO = 30;     // Tempo sversamento rimorchio→motrice
 
@@ -146,7 +146,7 @@ interface GeneratedTrip {
 // ============================================================================
 // NUOVO MODELLO LOGISTICO - MOTRICI CON CISTERNA INTEGRATA
 // ============================================================================
-// Le motrici hanno una cisterna integrata (17.500L, non staccabile) e possono
+// Le motrici hanno una serbatoio integrato (17.500L, non staccabile) e possono
 // trainare max 1 rimorchio. I rimorchi pieni NON salgono MAI a Livigno.
 // Il trasferimento del carburante avviene tramite sversamento a Tirano.
 // ============================================================================
@@ -156,17 +156,17 @@ interface GeneratedTrip {
 
 // Litri consegnati a Livigno per tipo viaggio
 const TRIP_LITERS = {
-  SHUTTLE_LIVIGNO: 17500,       // Cisterna integrata della motrice
+  SHUTTLE_LIVIGNO: 17500,       // Serbatoio integrato della motrice
   SUPPLY_MILANO: 35000,         // Motrice (17.500) + 1 rimorchio (17.500) - non consegna, riempie Tirano
-  FULL_ROUND: 17500,            // Cisterna integrata a Livigno
-  TRANSFER_TIRANO: 17500,       // Sversamento rimorchio → cisterna integrata
-  SHUTTLE_FROM_LIVIGNO: 17500,  // Driver Livigno: cisterna integrata consegnata a Livigno
-  SUPPLY_FROM_LIVIGNO: 17500,   // Driver Livigno: cisterna integrata + 1 rimorchio pieno lasciato a Tirano
+  FULL_ROUND: 17500,            // Serbatoio integrato a Livigno
+  TRANSFER_TIRANO: 17500,       // Sversamento rimorchio → serbatoio integrato
+  SHUTTLE_FROM_LIVIGNO: 17500,  // Driver Livigno: serbatoio integrato consegnata a Livigno
+  SUPPLY_FROM_LIVIGNO: 17500,   // Driver Livigno: serbatoio integrato + 1 rimorchio pieno lasciato a Tirano
 };
 
 // Rimorchi utilizzati per tipo viaggio
 const TRIP_TRAILERS = {
-  SHUTTLE_LIVIGNO: 0,       // Solo motrice sale (cisterna integrata)
+  SHUTTLE_LIVIGNO: 0,       // Solo motrice sale (serbatoio integrato)
   SUPPLY_MILANO: 1,         // Motrice + 1 rimorchio vuoto → tornano pieni
   FULL_ROUND: 0,            // Solo motrice
   TRANSFER_TIRANO: 1,       // 1 rimorchio pieno viene sversato
@@ -181,7 +181,7 @@ const MAX_DAILY_HOURS = 9; // ADR limit
 const MAX_SHUTTLE_PER_DAY_LIVIGNO_DRIVER = 3;
 
 // ============================================================================
-// STATO CISTERNE
+// STATO RIMORCHI
 // ============================================================================
 
 // Stato RIMORCHI (staccabili, base Tirano)
@@ -192,9 +192,9 @@ interface TrailerState {
   inTransit: Set<string>;      // ID rimorchi in viaggio
 }
 
-// Stato MOTRICI (cisterna integrata)
+// Stato MOTRICI (serbatoio integrato)
 interface VehicleTankState {
-  tankFull: Map<string, boolean>;      // vehicleId → cisterna integrata piena/vuota
+  tankFull: Map<string, boolean>;      // vehicleId → serbatoio integrato piena/vuota
   location: Map<string, string>;       // vehicleId → locationId corrente
 }
 
@@ -215,7 +215,7 @@ interface AvailabilityTracker {
   vehicleTimeSlots: Map<string, TimeSlot[]>; // vehicleId -> array di slot occupati
   trailerTimeSlots: Map<string, TimeSlot[]>; // trailerId -> array di slot occupati
   trailerState: TrailerState;                // Stato rimorchi
-  vehicleTankState: VehicleTankState;        // Stato cisterne integrate motrici
+  vehicleTankState: VehicleTankState;        // Stato serbatoi integrati motrici
 }
 
 // ============================================================================
@@ -334,7 +334,7 @@ export async function optimizeSchedule(
     }
   }
 
-  // Initialize VEHICLE TANK state (cisterna integrata)
+  // Initialize VEHICLE TANK state (serbatoio integrato)
   // Fetch vehicle states from schedule if available
   const vehicleStates = await prisma.scheduleVehicleState.findMany({
     where: { scheduleId },
@@ -348,7 +348,7 @@ export async function optimizeSchedule(
       tracker.vehicleTankState.tankFull.set(vehicle.id, vehicleState.isTankFull);
       tracker.vehicleTankState.location.set(vehicle.id, vehicleState.locationId);
     } else {
-      // Default: cisterna integrata vuota, posizione = base della motrice
+      // Default: serbatoio integrato vuota, posizione = base della motrice
       tracker.vehicleTankState.tankFull.set(vehicle.id, false);
       tracker.vehicleTankState.location.set(vehicle.id, vehicle.baseLocationId || tiranoLocation.id);
     }
@@ -652,7 +652,7 @@ export async function optimizeSchedule(
           }
         }
 
-        // Conta motrici con cisterna integrata piena a Tirano
+        // Conta motrici con serbatoio integrato piena a Tirano
         let vehiclesWithFullTankAtTirano = 0;
         let vehiclesWithEmptyTankAtTirano = 0;
         let pendingFullTanks: { id: string; availableAt: Date }[] = [];
@@ -666,7 +666,7 @@ export async function optimizeSchedule(
           }
         }
 
-        // Controlla cisterne integrate in arrivo (dopo TRANSFER)
+        // Controlla serbatoi integrati in arrivo (dopo TRANSFER)
         for (const [vehicleId, availAt] of vehicleTankAvailableAt) {
           if (availAt <= availableTime) {
             vehiclesWithFullTankAtTirano++;
@@ -894,7 +894,7 @@ export async function optimizeSchedule(
         let success = false;
 
         if (tripType === 'SHUTTLE_LIVIGNO') {
-          // Trova motrice con cisterna integrata PIENA a Tirano
+          // Trova motrice con serbatoio integrato PIENA a Tirano
           for (const v of vehicles) {
             const location = tracker.vehicleTankState.location.get(v.id);
             const isFull = tracker.vehicleTankState.tankFull.get(v.id);
@@ -922,10 +922,10 @@ export async function optimizeSchedule(
           if (vehicle) {
             reserveResource(vehicle.id, departureTime, returnTime, driver.id, tracker.vehicleTimeSlots);
 
-            // La motrice sale a Livigno con cisterna integrata piena, torna vuota
+            // La motrice sale a Livigno con serbatoio integrato piena, torna vuota
             tripTrailers = []; // Nessun rimorchio per SHUTTLE!
 
-            // Aggiorna stato: cisterna integrata da piena a vuota, posizione rimane Tirano
+            // Aggiorna stato: serbatoio integrato da piena a vuota, posizione rimane Tirano
             tracker.vehicleTankState.tankFull.set(vehicle.id, false);
 
             remainingLiters -= TRIP_LITERS.SHUTTLE_LIVIGNO;
@@ -933,7 +933,7 @@ export async function optimizeSchedule(
             success = true;
           }
         } else if (tripType === 'TRANSFER_TIRANO') {
-          // Trova motrice con cisterna integrata VUOTA a Tirano
+          // Trova motrice con serbatoio integrato VUOTA a Tirano
           for (const v of vehicles) {
             const location = tracker.vehicleTankState.location.get(v.id);
             const isFull = tracker.vehicleTankState.tankFull.get(v.id);
@@ -974,7 +974,7 @@ export async function optimizeSchedule(
               dropOffLocationId: tiranoLocation.id, // Rimane a Tirano (vuoto dopo sversamento)
             }];
 
-            // Aggiorna stato: rimorchio da pieno a vuoto, cisterna integrata da vuota a piena
+            // Aggiorna stato: rimorchio da pieno a vuoto, serbatoio integrato da vuota a piena
             // Il rimorchio diventa VUOTO solo alla fine del TRANSFER (returnTime), non subito!
             tracker.trailerState.atTiranoFull.delete(trailerId);
             trailerEmptyAvailableAt.set(trailerId, returnTime);
@@ -1034,7 +1034,7 @@ export async function optimizeSchedule(
             tracker.trailerState.atTiranoEmpty.delete(trailerId);
             trailerAvailableAt.set(trailerId, returnTime);
 
-            // La cisterna integrata sarà piena al ritorno
+            // La serbatoio integrato sarà piena al ritorno
             const wasIntegratedTankFull = tracker.vehicleTankState.tankFull.get(vehicle.id);
             if (!wasIntegratedTankFull) {
               vehicleTankAvailableAt.set(vehicle.id, returnTime);
@@ -1053,7 +1053,7 @@ export async function optimizeSchedule(
           // =========================================================================
           // Fasi:
           // 1. Livigno → Tirano (90 min) con motrice vuota
-          // 2. TRANSFER: rimorchio pieno → cisterna integrata (30 min)
+          // 2. TRANSFER: rimorchio pieno → serbatoio integrato (30 min)
           // 3. Tirano → Livigno (120 min) con motrice piena
           // 4. Scarico a Livigno (30 min)
           // La motrice RESTA A LIVIGNO!
@@ -1100,7 +1100,7 @@ export async function optimizeSchedule(
             trailerEmptyTime.setMinutes(trailerEmptyTime.getMinutes() + routeDurations.livignoToTirano + TRANSFER_TIME_TIRANO);
             trailerEmptyAvailableAt.set(trailerId, trailerEmptyTime);
 
-            // - Cisterna integrata: vuota (ha scaricato a Livigno)
+            // - Serbatoio integrato: vuota (ha scaricato a Livigno)
             tracker.vehicleTankState.tankFull.set(vehicle.id, false);
 
             // - CRUCIALE: la motrice RESTA A LIVIGNO!
@@ -1153,7 +1153,7 @@ export async function optimizeSchedule(
             tracker.trailerState.atTiranoEmpty.delete(trailerId);
             trailerAvailableAt.set(trailerId, returnTime); // Sarà pieno quando il viaggio finisce
 
-            // - Cisterna integrata: vuota (ha scaricato a Livigno)
+            // - Serbatoio integrato: vuota (ha scaricato a Livigno)
             tracker.vehicleTankState.tankFull.set(vehicle.id, false);
 
             // - CRUCIALE: la motrice RESTA A LIVIGNO!
@@ -1164,7 +1164,7 @@ export async function optimizeSchedule(
             success = true;
           }
         } else if (tripType === 'FULL_ROUND') {
-          // FULL_ROUND: motrice va a Milano, carica cisterna integrata, consegna a Livigno
+          // FULL_ROUND: motrice va a Milano, carica serbatoio integrato, consegna a Livigno
           for (const v of vehicles) {
             const location = tracker.vehicleTankState.location.get(v.id);
             if (location === tiranoLocation.id &&
@@ -1179,7 +1179,7 @@ export async function optimizeSchedule(
 
             tripTrailers = []; // Nessun rimorchio per FULL_ROUND
 
-            // La cisterna integrata viene usata per il giro completo
+            // La serbatoio integrato viene usata per il giro completo
             // Torna vuota a Tirano
             tracker.vehicleTankState.tankFull.set(vehicle.id, false);
 

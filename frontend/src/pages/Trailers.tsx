@@ -78,10 +78,10 @@ export default function Trailers() {
     try {
       if (editingTrailer) {
         await updateMutation.mutateAsync({ id: editingTrailer.id, data });
-        toast({ title: 'Cisterna aggiornata', variant: 'success' });
+        toast({ title: 'Rimorchio aggiornato', variant: 'success' });
       } else {
         await createMutation.mutateAsync(data);
-        toast({ title: 'Cisterna creata', variant: 'success' });
+        toast({ title: 'Rimorchio creato', variant: 'success' });
       }
       setIsDialogOpen(false);
     } catch (error) {
@@ -90,10 +90,10 @@ export default function Trailers() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Sei sicuro di voler eliminare questa cisterna?')) return;
+    if (!confirm('Sei sicuro di voler eliminare questo rimorchio?')) return;
     try {
       await deleteMutation.mutateAsync(id);
-      toast({ title: 'Cisterna eliminata', variant: 'success' });
+      toast({ title: 'Rimorchio eliminato', variant: 'success' });
     } catch (error) {
       toast({ title: 'Errore', description: 'Impossibile eliminare', variant: 'destructive' });
     }
@@ -106,7 +106,7 @@ export default function Trailers() {
         data: { isActive: !trailer.isActive },
       });
       toast({
-        title: trailer.isActive ? 'Cisterna disattivata' : 'Cisterna attivata',
+        title: trailer.isActive ? 'Rimorchio disattivato' : 'Rimorchio attivato',
         variant: 'success',
       });
     } catch (error) {
@@ -120,13 +120,13 @@ export default function Trailers() {
         <h1 className="text-3xl font-bold">Cisterne</h1>
         <Button onClick={openCreateDialog}>
           <Plus className="mr-2 h-4 w-4" />
-          Nuova Cisterna
+          Nuovo Rimorchio
         </Button>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Elenco Cisterne</CardTitle>
+          <CardTitle>Elenco Rimorchi</CardTitle>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -185,7 +185,7 @@ export default function Trailers() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              {editingTrailer ? 'Modifica Cisterna' : 'Nuova Cisterna'}
+              {editingTrailer ? 'Modifica Rimorchio' : 'Nuovo Rimorchio'}
             </DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSubmit(onSubmit)}>

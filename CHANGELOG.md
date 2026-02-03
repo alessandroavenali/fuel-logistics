@@ -60,7 +60,7 @@ Scenario: Rimorchi pieni disponibili a Tirano
 |------|--------|--------|
 | 1 | Partenza da Livigno (motrice vuota) | - |
 | 2 | Livigno → Tirano | 90 min |
-| 3 | TRANSFER: rimorchio pieno → cisterna integrata | 30 min |
+| 3 | TRANSFER: rimorchio pieno → serbatoio integrato | 30 min |
 | 4 | Tirano → Livigno (motrice piena) | 120 min |
 | 5 | Scarico a Livigno | 30 min |
 | **Totale** | | **270 min (4.5h)** |

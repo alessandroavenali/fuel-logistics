@@ -109,7 +109,7 @@ export async function getTrailersAtLocation(req: Request, res: Response, next: N
   }
 }
 
-// Stato corrente di tutte le cisterne
+// Stato corrente di tutti i rimorchi
 export async function getTrailersStatus(req: Request, res: Response, next: NextFunction) {
   try {
     const prisma: PrismaClient = (req as any).prisma;

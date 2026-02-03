@@ -38,21 +38,21 @@ enum LocationType {
 
 // Tipo di viaggio per ottimizzazione logistica
 enum TripType {
-  SHUTTLE_LIVIGNO       // Tirano <-> Livigno: ~4.5h, solo motrice (cisterna integrata), 17.500L
+  SHUTTLE_LIVIGNO       // Tirano <-> Livigno: ~4.5h, solo motrice (serbatoio integrato), 17.500L
   SUPPLY_MILANO         // Tirano <-> Milano: ~6h, motrice + 1 rimorchio, riempie deposito Tirano (35.000L)
   FULL_ROUND            // Completo: ~9h, Milano -> Tirano -> Livigno -> Tirano, 17.500L
-  TRANSFER_TIRANO       // Sversamento: 30min, rimorchio pieno -> cisterna integrata vuota a Tirano
+  TRANSFER_TIRANO       // Sversamento: 30min, rimorchio pieno -> serbatoio integrato vuota a Tirano
   SHUTTLE_FROM_LIVIGNO  // Driver Livigno: Livigno -> Tirano -> transfer -> Livigno: ~4.5h, 17.500L
   SUPPLY_FROM_LIVIGNO   // Driver Livigno: Livigno -> Tirano -> Milano -> Tirano -> Livigno: ~10h, 17.500L (eccezione ADR)
 }
 
-// Motrici (con cisterna integrata)
+// Motrici (con serbatoio integrato)
 model Vehicle {
   id                   String   @id @default(uuid())
   plate                String   @unique
   name                 String?
   maxTrailers          Int      @default(1)      // Può trainare max 1 rimorchio
-  integratedTankLiters Int      @default(17500)  // Cisterna integrata non staccabile
+  integratedTankLiters Int      @default(17500)  // Serbatoio integrato non staccabile
   baseLocationId       String?
   isActive             Boolean  @default(true)
   createdAt            DateTime @default(now())
@@ -63,7 +63,7 @@ model Vehicle {
   scheduleStates    ScheduleVehicleState[]
 }
 
-// Autobotti/Cisterne
+// Rimorchi
 model Trailer {
   id             String   @id @default(uuid())
   plate          String   @unique
@@ -140,7 +140,7 @@ model Schedule {
   vehicleStates       ScheduleVehicleState[]
 }
 
-// Stato iniziale cisterne per pianificazione
+// Stato iniziale rimorchi per pianificazione
 model ScheduleInitialState {
   id         String   @id @default(uuid())
   scheduleId String
@@ -162,7 +162,7 @@ model ScheduleVehicleState {
   scheduleId String
   vehicleId  String
   locationId String
-  isTankFull Boolean  @default(false)  // Stato cisterna integrata (piena/vuota)
+  isTankFull Boolean  @default(false)  // Stato serbatoio integrato (piena/vuota)
   createdAt  DateTime @default(now())
 
   schedule Schedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
@@ -207,7 +207,7 @@ enum TripStatus {
   CANCELLED
 }
 
-// Associazione viaggio-cisterna
+// Associazione viaggio-rimorchio
 model TripTrailer {
   id                String   @id @default(uuid())
   tripId            String

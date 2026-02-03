@@ -4,7 +4,7 @@ Sistema di gestione e ottimizzazione dei turni di trasporto carburante.
 
 ## Funzionalita
 
-- Configurazione asset (motrici, cisterne, autisti, luoghi)
+- Configurazione asset (motrici, rimorchi, autisti, luoghi)
 - Pianificazione automatica turni basata su fabbisogno litri
 - Modifica manuale con validazione vincoli ADR in tempo reale
 - Calcolo costi (autisti a chiamata)
@@ -109,7 +109,7 @@ fuel-logistics/
 
 ### Risorse CRUD
 - `GET/POST /api/vehicles` - Motrici
-- `GET/POST /api/trailers` - Cisterne
+- `GET/POST /api/trailers` - Rimorchi
 - `GET/POST /api/drivers` - Autisti
 - `GET/POST /api/locations` - Luoghi
 - `GET/POST /api/routes` - Percorsi
@@ -141,19 +141,19 @@ fuel-logistics/
 ## Logica di Ottimizzazione
 
 L'algoritmo di ottimizzazione:
-1. Traccia lo stato delle cisterne in tutte le location (Tirano, Livigno, Milano)
+1. Traccia lo stato delle rimorchi in tutte le location (Tirano, Livigno, Milano)
 2. Assegna i viaggi ottimali in base alle risorse disponibili:
    - Driver Tirano: SUPPLY, SHUTTLE, o FULL_ROUND
    - Driver Livigno: SHUTTLE se ci sono piene, altrimenti SUPPLY
 3. Distribuisce i viaggi rispettando i vincoli ADR (9h/giorno, 56h/settimana)
-4. Massimizza i litri consegnati utilizzando cisterne da qualsiasi location
+4. Massimizza i litri consegnati utilizzando rimorchi da qualsiasi location
 
 ### Tipi di Viaggio
 
 | Tipo | Durata | Litri Consegnati | Descrizione |
 |------|--------|------------------|-------------|
 | `SHUTTLE_LIVIGNO` | 4h | 17.500L | Tirano → Livigno → Tirano (motrice piena) |
-| `TRANSFER_TIRANO` | 0.5h | 0L | Sversamento rimorchio → cisterna motrice |
+| `TRANSFER_TIRANO` | 0.5h | 0L | Sversamento rimorchio → serbatoio motrice |
 | `SUPPLY_MILANO` | 6h | 0L | Tirano → Milano → Tirano (riempie motrice + rimorchio) |
 | `FULL_ROUND` | 9.5h | 17.500L | Tirano → Milano → Tirano → Livigno → Tirano |
 | `SHUTTLE_FROM_LIVIGNO` | 4.5h | 17.500L | Livigno → Tirano (transfer) → Livigno |
@@ -244,7 +244,7 @@ Il seed popola il database con:
 - 3 luoghi: Milano (sorgente), Tirano (parcheggio), Livigno (destinazione)
 - 4 percorsi predefiniti con tempi e costi
 - 2 motrici
-- 3 cisterne da 17.500L
+- 3 rimorchi da 17.500L
 - 3 autisti (2 dipendenti + 1 a chiamata)
 
 ## Comandi Utili

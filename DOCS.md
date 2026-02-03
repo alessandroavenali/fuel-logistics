@@ -14,14 +14,14 @@
 
 ## Panoramica
 
-**Fuel Logistics** è un sistema per gestire il trasporto di carburante da un deposito (Milano) alla base operativa montana (Livigno), con un parcheggio intermedio (Tirano) dove le cisterne possono essere sganciate.
+**Fuel Logistics** è un sistema per gestire il trasporto di carburante da un deposito (Milano) alla base operativa montana (Livigno), con un parcheggio intermedio (Tirano) dove i rimorchi possono essere sganciati.
 
 ### Flusso Operativo
-La **base operativa principale** è Tirano, dove sono parcheggiate motrici e cisterne. Un driver è basato a Livigno per shuttle efficienti.
+La **base operativa principale** è Tirano, dove sono parcheggiate motrici e rimorchi. Un driver è basato a Livigno per shuttle efficienti.
 
 **Vincolo tratta montana:**
-- Livigno ↔ Tirano: **max 1 cisterna** (strada di montagna)
-- Tirano ↔ Milano: **max 2 cisterne**
+- Livigno ↔ Tirano: **max 1 rimorchio** (strada di montagna)
+- Tirano ↔ Milano: **max 2 rimorchi**
 
 **Tempi di percorrenza:**
 - Tirano ↔ Livigno: **90 minuti**
@@ -29,34 +29,34 @@ La **base operativa principale** è Tirano, dove sono parcheggiate motrici e cis
 
 ### Tipi di Viaggio
 
-| Tipo | Durata | Cisterne | Litri | Percorso |
+| Tipo | Durata | Rimorchi | Litri | Percorso |
 |------|--------|----------|-------|----------|
 | **SHUTTLE_LIVIGNO** | 3.5h | 1 | 17.500L | Tirano → Livigno → Tirano |
 | **SUPPLY_MILANO** | 6h | 2 | 0 (riempie Tirano) | Tirano → Milano → Tirano |
 | **FULL_ROUND** | 8h | 1 | 17.500L | Tirano → Milano → Tirano → Livigno → Tirano |
 
 **SHUTTLE_LIVIGNO** (più efficiente):
-1. Partenza da Tirano con 1 cisterna piena
+1. Partenza da Tirano con 1 rimorchio pieno
 2. Arrivo a Livigno → scarico carburante
-3. Ritorno a Tirano con cisterna vuota
+3. Ritorno a Tirano con rimorchio vuoto
 
 **SUPPLY_MILANO** (rifornimento deposito):
-1. Partenza da Tirano con 2 cisterne vuote
+1. Partenza da Tirano con 2 rimorchi vuoti
 2. Arrivo a Milano → carico carburante
-3. Ritorno a Tirano con 2 cisterne piene (depositate per shuttle successivi)
+3. Ritorno a Tirano con 2 rimorchi pieni (depositate per shuttle successivi)
 
 **FULL_ROUND** (viaggio completo):
-1. Partenza da Tirano con cisterna vuota
+1. Partenza da Tirano con rimorchio vuoto
 2. Arrivo a Milano → carico carburante
 3. Ritorno a Tirano
-4. Prosegue verso Livigno con cisterna piena
+4. Prosegue verso Livigno con rimorchio pieno
 5. Scarico a Livigno
 6. Ritorno a Tirano
 
 ### Problema risolto
 - Pianificare i viaggi per soddisfare un fabbisogno di litri in un periodo
 - Rispettare i vincoli ADR (ore di guida, riposi obbligatori)
-- Gestire lo sgancio/recupero cisterne a Tirano (ottimizzazione capacità)
+- Gestire lo sgancio/recupero rimorchi a Tirano (ottimizzazione capacità)
 - Calcolare i costi degli autisti a chiamata
 
 ### Utenti target
@@ -69,19 +69,19 @@ La **base operativa principale** è Tirano, dove sono parcheggiate motrici e cis
 
 | Termine | Descrizione |
 |---------|-------------|
-| **Motrice** | Veicolo trainante (camion) che può trainare 1-2 cisterne |
-| **Cisterna/Trailer** | Rimorchio contenente il carburante (capacità standard: 17.500 litri) |
+| **Motrice** | Veicolo trainante (camion) che può trainare 1-2 rimorchi |
+| **Rimorchio/Trailer** | Rimorchio contenente il carburante (capacità standard: 17.500 litri) |
 | **Autista Dipendente (RESIDENT)** | Autista assunto a tempo indeterminato |
 | **Autista a Chiamata (ON_CALL)** | Autista pagato a ore quando necessario |
 | **Autista Emergenza (EMERGENCY)** | Autista per situazioni eccezionali |
 | **Base Operativa** | Luogo di partenza/arrivo dell'autista (Tirano o Livigno) |
 | **Sorgente (SOURCE)** | Luogo di carico carburante (es. Milano Deposito) |
 | **Destinazione (DESTINATION)** | Luogo di scarico finale (es. Livigno) |
-| **Parcheggio (PARKING)** | Luogo intermedio per sgancio cisterne (es. Tirano) |
+| **Parcheggio (PARKING)** | Luogo intermedio per sgancio rimorchi (es. Tirano) |
 | **Schedule/Pianificazione** | Piano di viaggi per un periodo con un obiettivo di litri |
-| **Trip/Viaggio** | Singolo viaggio con autista, motrice e cisterne assegnate |
-| **SHUTTLE_LIVIGNO** | Viaggio breve Tirano ↔ Livigno (3.5h, 1 cisterna) |
-| **SUPPLY_MILANO** | Viaggio rifornimento Tirano ↔ Milano (6h, 2 cisterne) |
+| **Trip/Viaggio** | Singolo viaggio con autista, motrice e rimorchi assegnati |
+| **SHUTTLE_LIVIGNO** | Viaggio breve Tirano ↔ Livigno (3.5h, 1 rimorchio) |
+| **SUPPLY_MILANO** | Viaggio rifornimento Tirano ↔ Milano (6h, 2 rimorchi) |
 | **FULL_ROUND** | Viaggio completo Tirano → Milano → Livigno → Tirano (8h) |
 | **ADR** | Accordo europeo trasporto merci pericolose - regola ore guida |
 
@@ -136,7 +136,7 @@ fuel-logistics/
 **Scopo**: Vista d'insieme dello stato del sistema
 
 **Mostra**:
-- Contatori: motrici attive, cisterne attive, autisti attivi, litri totali trasportati
+- Contatori: motrici attive, rimorchi attivi, autisti attivi, litri totali trasportati
 - Alert patentini in scadenza (prossimi 30 giorni)
 - Lista pianificazioni attive (DRAFT o CONFIRMED)
 - Statistiche rapide: media litri/giorno, autisti per tipo
@@ -149,7 +149,7 @@ fuel-logistics/
 **Campi**:
 - `plate`: Targa (univoca)
 - `name`: Nome identificativo (opzionale)
-- `maxTrailers`: Numero massimo cisterne trainabili (default: 2)
+- `maxTrailers`: Numero massimo rimorchi trainabili (default: 2)
 - `isActive`: Stato attivo/inattivo
 
 **Funzionalità**:
@@ -160,8 +160,8 @@ fuel-logistics/
 
 ---
 
-### 3. Gestione Cisterne (`/trailers`)
-**Scopo**: CRUD rimorchi cisterna
+### 3. Gestione Rimorchi (`/trailers`)
+**Scopo**: CRUD rimorchi
 
 **Campi**:
 - `plate`: Targa (univoca)
@@ -182,7 +182,7 @@ fuel-logistics/
 - `phone`: Telefono (opzionale)
 - `baseLocationId`: Base operativa (Tirano o Livigno)
 - `adrLicenseExpiry`: Scadenza patentino ADR
-- `adrCisternExpiry`: Scadenza specializzazione cisterne
+- `adrCisternExpiry`: Scadenza specializzazione ADR cisterne
 - `weeklyWorkingDays`: Giorni lavorativi/settimana (default: 5)
 - `hourlyCost`: Costo orario (solo per ON_CALL)
 - `isActive`: Stato
@@ -213,7 +213,7 @@ fuel-logistics/
 **Tipi**:
 - **SOURCE** (blu): Punto di carico (fornitore)
 - **DESTINATION** (verde): Punto di scarico finale
-- **PARKING** (arancione): Parcheggio intermedio per sgancio cisterne
+- **PARKING** (arancione): Parcheggio intermedio per sgancio rimorchi
 
 ---
 
@@ -270,7 +270,7 @@ fuel-logistics/
 - Percentuale copertura
 
 #### Stato Risorse (3 card)
-- **Stato Cisterne**: Posizione corrente di ogni cisterna
+- **Stato Rimorchi**: Posizione corrente di ogni rimorchio
   - Blu: Deposito Milano
   - Arancione: Parcheggio Tirano
   - Viola: In Viaggio
@@ -284,10 +284,10 @@ fuel-logistics/
 
 #### Calendario Interattivo
 - Vista settimana/mese
-- Eventi mostrano: Autista - Targa + Cisterne (Litri)
+- Eventi mostrano: Autista - Targa + Rimorchi (Litri)
 - Icone speciali:
-  - ⬇️ Sgancio cisterna a Tirano
-  - ⬆️ Recupero cisterna da Tirano
+  - ⬇️ Sgancio rimorchio a Tirano
+  - ⬆️ Recupero rimorchio da Tirano
 - Colori per stato viaggio:
   - Blu: PLANNED
   - Viola: IN_PROGRESS
@@ -299,10 +299,10 @@ fuel-logistics/
 
 #### Dialog Viaggio (Migliorato)
 - Selezione autista (con tipo e stato)
-- Selezione motrice (con max cisterne)
+- Selezione motrice (con max rimorchi)
 - Data e ora partenza
-- **Sezione Cisterne** (multiple, fino a maxTrailers):
-  - Selezione cisterna con posizione corrente
+- **Sezione Rimorchi** (multiple, fino a maxTrailers):
+  - Selezione rimorchio con posizione corrente
   - Litri caricati
   - Checkbox "Recupero da Tirano" (pickup)
   - Checkbox "Sgancia a Tirano" (drop-off)
@@ -372,14 +372,14 @@ fuel-logistics/
 
 1. Nel dettaglio pianificazione (stato DRAFT)
 2. Click su uno slot vuoto nel calendario OPPURE click **Aggiungi Viaggio**
-3. Seleziona autista, motrice, cisterna
+3. Seleziona autista, motrice, rimorchio
 4. Imposta data, ora, litri
 5. Click **Crea**
 
 ### Flusso 4: Controllare patentini in scadenza
 
 1. Vai a **Dashboard** → sezione "Patentini in Scadenza"
-2. Oppure vai a **Autisti** → colonne ADR e Cisterne mostrano badge colorati
+2. Oppure vai a **Autisti** → colonne ADR e ADR Cisterne mostrano badge colorati
 
 ### Flusso 5: Analizzare i costi
 
@@ -405,31 +405,31 @@ fuel-logistics/
 
 ### Logica Ottimizzatore
 
-L'ottimizzatore traccia lo stato delle cisterne in tutte le location (Tirano, Livigno, Milano) e assegna il tipo di viaggio più efficiente:
+L'ottimizzatore traccia lo stato dei rimorchi in tutte le location (Tirano, Livigno, Milano) e assegna il tipo di viaggio più efficiente:
 
-**Stato Cisterne Tracciato:**
-- `atTiranoFull` / `atTiranoEmpty` - cisterne a Tirano
-- `atLivignoFull` / `atLivignoEmpty` - cisterne a Livigno
-- `atMilano` - cisterne al deposito
+**Stato Rimorchi Tracciato:**
+- `atTiranoFull` / `atTiranoEmpty` - rimorchi a Tirano
+- `atLivignoFull` / `atLivignoEmpty` - rimorchi a Livigno
+- `atMilano` - rimorchi al deposito
 
 **Driver Livigno:**
-1. Se cisterne piene a Tirano → SHUTTLE_LIVIGNO (max 3/giorno)
+1. Se rimorchi pieni a Tirano → SHUTTLE_LIVIGNO (max 3/giorno)
 2. Se nessuna piena ma vuote disponibili (Livigno o Tirano) → SUPPLY_MILANO
-3. Se cisterne in arrivo → aspetta
+3. Se rimorchi in arrivo → aspetta
 4. Consegna potenziale: 52.500L/giorno (3 × 17.500L)
 
 **Driver Tirano:**
-1. Se cisterne piene < 2 e vuote ≥ 2 → SUPPLY_MILANO
-2. Se cisterne piene ≥ 1 → SHUTTLE_LIVIGNO
-3. Se cisterne in arrivo → aspetta
+1. Se rimorchi pieni < 2 e vuote ≥ 2 → SUPPLY_MILANO
+2. Se rimorchi pieni ≥ 1 → SHUTTLE_LIVIGNO
+3. Se rimorchi in arrivo → aspetta
 4. Fallback con vuote disponibili → FULL_ROUND
 
-**Nota:** I viaggi SUPPLY possono usare cisterne vuote sia da Tirano che da Livigno, massimizzando l'utilizzo delle risorse.
+**Nota:** I viaggi SUPPLY possono usare rimorchi vuoti sia da Tirano che da Livigno, massimizzando l'utilizzo delle risorse.
 
-**Gestione Stato Cisterne**:
-- `atTiranoFull`: Cisterne piene pronte per shuttle
-- `atTiranoEmpty`: Cisterne vuote pronte per supply
-- `atMilano`: Cisterne al deposito sorgente
+**Gestione Stato Rimorchi**:
+- `atTiranoFull`: Rimorchi pieni pronte per shuttle
+- `atTiranoEmpty`: Rimorchi vuoti pronte per supply
+- `atMilano`: Rimorchi al deposito sorgente
 
 **Capacità Giornaliera Teorica**:
 | Risorsa | Tipo Viaggio | Litri/giorno |
@@ -439,23 +439,23 @@ L'ottimizzatore traccia lo stato delle cisterne in tutte le location (Tirano, Li
 | 1 driver Tirano | SUPPLY | riempie deposito |
 | **TOTALE** | | **~120.000L** |
 
-### Gestione Cisterne a Tirano
+### Gestione Rimorchi a Tirano
 
 Il parcheggio di Tirano serve come punto di scambio per ottimizzare i viaggi:
 
-**Andata (cisterne vuote):**
-- La motrice parte da Livigno con 1 cisterna vuota (vincolo montagna)
-- A Tirano può agganciare una 2° cisterna vuota (`isPickup = true`)
-- Prosegue verso Milano con 1-2 cisterne
+**Andata (rimorchi vuoti):**
+- La motrice parte da Livigno con 1 rimorchio vuoto (vincolo montagna)
+- A Tirano può agganciare una 2° rimorchio vuoto (`isPickup = true`)
+- Prosegue verso Milano con 1-2 rimorchi
 
-**Ritorno (cisterne piene):**
-- La motrice parte da Milano con le cisterne piene
-- A Tirano può sganciare 1 cisterna piena (`dropOffLocationId`)
-- Prosegue verso Livigno con 1 sola cisterna (vincolo montagna)
+**Ritorno (rimorchi pieni):**
+- La motrice parte da Milano con le rimorchi pieni
+- A Tirano può sganciare 1 rimorchio pieno (`dropOffLocationId`)
+- Prosegue verso Livigno con 1 solo rimorchio (vincolo montagna)
 
-**Cisterne parcheggiate a Tirano:**
-- Cisterne piene: in attesa di essere portate a Livigno
-- Cisterne vuote: in attesa di essere portate a Milano per il carico
+**Rimorchi parcheggiati a Tirano:**
+- Rimorchi pieni: in attesa di essere portate a Livigno
+- Rimorchi vuoti: in attesa di essere portate a Milano per il carico
 
 ### Stima Durata Viaggio
 
@@ -549,7 +549,7 @@ Location (Luoghi)
 Vehicle (Motrici)
 ├── id, plate, name, maxTrailers, isActive
 
-Trailer (Cisterne)
+Trailer (Rimorchi)
 ├── id, plate, name, capacityLiters, isActive
 
 Driver (Autisti)
@@ -567,7 +567,7 @@ Trip (Viaggi)
 ├── id, scheduleId, vehicleId, driverId
 ├── date, departureTime, returnTime, tripType, status, notes
 
-TripTrailer (Associazione Viaggio-Cisterna)
+TripTrailer (Associazione Viaggio-Rimorchio)
 ├── id, tripId, trailerId, litersLoaded
 ├── dropOffLocationId, isPickup
 
@@ -606,12 +606,12 @@ Il seed (`npx tsx prisma/seed.ts`) crea:
 - Tirano ↔ Livigno: 45km, **90min**, €0
 
 **Veicoli** (4 motrici):
-- FG001AA "Motrice Alfa" (max 2 cisterne)
-- FG002BB "Motrice Beta" (max 2 cisterne)
-- FG003CC "Motrice Gamma" (max 2 cisterne)
-- FG004DD "Motrice Delta" (max 2 cisterne)
+- FG001AA "Motrice Alfa" (max 2 rimorchi)
+- FG002BB "Motrice Beta" (max 2 rimorchi)
+- FG003CC "Motrice Gamma" (max 2 rimorchi)
+- FG004DD "Motrice Delta" (max 2 rimorchi)
 
-**Cisterne** (8 da 17.500L):
+**Rimorchi** (4 da 17.500L):
 - CIS-001 a CIS-008
 
 **Autisti** (5 con base operativa):

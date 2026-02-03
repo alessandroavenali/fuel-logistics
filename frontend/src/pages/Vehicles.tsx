@@ -136,7 +136,7 @@ export default function Vehicles() {
                 <TableRow>
                   <TableHead>Targa</TableHead>
                   <TableHead>Nome</TableHead>
-                  <TableHead>Max Cisterne</TableHead>
+                  <TableHead>Max Rimorchi</TableHead>
                   <TableHead>Stato</TableHead>
                   <TableHead className="text-right">Azioni</TableHead>
                 </TableRow>
@@ -201,7 +201,7 @@ export default function Vehicles() {
                 <Input id="name" {...register('name')} />
               </div>
               <div>
-                <Label htmlFor="maxTrailers">Max Cisterne</Label>
+                <Label htmlFor="maxTrailers">Max Rimorchi</Label>
                 <Input
                   id="maxTrailers"
                   type="number"

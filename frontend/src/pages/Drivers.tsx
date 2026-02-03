@@ -192,7 +192,7 @@ export default function Drivers() {
                   <TableHead>Base</TableHead>
                   <TableHead>Telefono</TableHead>
                   <TableHead>ADR</TableHead>
-                  <TableHead>Cisterne</TableHead>
+                  <TableHead>ADR Cisterne</TableHead>
                   <TableHead>Costo/h</TableHead>
                   <TableHead>Stato</TableHead>
                   <TableHead className="text-right">Azioni</TableHead>
@@ -338,7 +338,7 @@ export default function Drivers() {
                   <Input id="adrLicenseExpiry" type="date" {...register('adrLicenseExpiry')} />
                 </div>
                 <div>
-                  <Label htmlFor="adrCisternExpiry">Scadenza Cisterne</Label>
+                  <Label htmlFor="adrCisternExpiry">Scadenza ADR Cisterne</Label>
                   <Input id="adrCisternExpiry" type="date" {...register('adrCisternExpiry')} />
                 </div>
               </div>
