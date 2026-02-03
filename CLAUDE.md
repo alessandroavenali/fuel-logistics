@@ -15,15 +15,15 @@ Sistema di ottimizzazione logistica per trasporto carburante Milano → Tirano �
 | Entità | Quantità | Note |
 |--------|----------|------|
 | Locations | 3 | Milano (SOURCE), Tirano (PARKING), Livigno (DESTINATION) |
-| Vehicles | 4 | Motrici con cisterna integrata 17.500L. FG001AA base Livigno, altri base Tirano |
+| Vehicles | 4 | Motrici con serbatoio integrato 17.500L. FG001AA base Livigno, altri base Tirano |
 | Trailers | 4 | Rimorchi 17.500L, tutti base Tirano |
 | Drivers | 5 | 1 Livigno (Marco Bianchi), 4 Tirano |
 | Routes | 4 | Tirano→Livigno: 120min (salita), Livigno→Tirano: 90min (discesa), Milano↔Tirano: 150min |
 
 ### Modello Logistico
 
-- **Motrici**: hanno cisterna integrata da 17.500L (non staccabile)
-- **Rimorchi**: cisterne aggiuntive da 17.500L trainabili dalle motrici
+- **Motrici**: hanno serbatoio integrato da 17.500L (non staccabile)
+- **Rimorchi**: serbatoi aggiuntivi da 17.500L trainabili dalle motrici
 - **Capacità totale per viaggio**: motrice (17.500L) + rimorchio (17.500L) = 35.000L
 
 ## Workflow di Sviluppo
