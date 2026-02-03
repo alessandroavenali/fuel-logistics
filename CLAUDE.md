@@ -120,7 +120,14 @@ git push origin main
 # 3. CI/CD applica automaticamente la migrazione
 ```
 
-**IMPORTANTE**: Il CI/CD usa solo `migrate deploy`. Se lo schema non è allineato, il deploy fallisce con istruzioni.
+**IMPORTANTE**: Il CI/CD usa solo `migrate deploy`. Se lo schema non è allineato, il deploy fallisce.
+
+**Perché può fallire?**
+- Schema modificato in `schema.prisma` senza creare migrazione
+- Il codice si aspetta colonne/tabelle che il DB non ha
+- Prisma non trova la migrazione corrispondente
+
+**Regola d'oro**: MAI pushare modifiche a `schema.prisma` senza prima aver creato la migrazione locale con `npx prisma migrate dev`.
 
 ### TypeScript
 
