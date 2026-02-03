@@ -66,7 +66,6 @@ async function setupTestData(config: {
     const driver = await prisma.driver.create({
       data: {
         name: `Test Driver Tirano ${i + 1}`,
-        licenseNumber: `TEST-TIR-${Date.now()}-${i}`,
         type,
         baseLocationId: tirano.id,
         isActive: true,
@@ -81,7 +80,6 @@ async function setupTestData(config: {
     const driver = await prisma.driver.create({
       data: {
         name: `Test Driver Livigno ${i + 1}`,
-        licenseNumber: `TEST-LIV-${Date.now()}-${i}`,
         type,
         baseLocationId: livigno.id,
         isActive: true,
@@ -94,9 +92,9 @@ async function setupTestData(config: {
   for (let i = 0; i < config.numVehiclesTirano; i++) {
     const vehicle = await prisma.vehicle.create({
       data: {
-        licensePlate: `TEST-VEH-TIR-${Date.now()}-${i}`,
-        model: 'Test Truck',
-        capacityLiters: LITERS_PER_INTEGRATED_TANK,
+        plate: `TEST-VEH-TIR-${Date.now()}-${i}`,
+        name: 'Test Truck',
+        integratedTankLiters: LITERS_PER_INTEGRATED_TANK,
         baseLocationId: tirano.id,
         isActive: true,
       },
@@ -108,9 +106,9 @@ async function setupTestData(config: {
   for (let i = 0; i < config.numVehiclesLivigno; i++) {
     const vehicle = await prisma.vehicle.create({
       data: {
-        licensePlate: `TEST-VEH-LIV-${Date.now()}-${i}`,
-        model: 'Test Truck',
-        capacityLiters: LITERS_PER_INTEGRATED_TANK,
+        plate: `TEST-VEH-LIV-${Date.now()}-${i}`,
+        name: 'Test Truck',
+        integratedTankLiters: LITERS_PER_INTEGRATED_TANK,
         baseLocationId: livigno.id,
         isActive: true,
       },
@@ -123,7 +121,7 @@ async function setupTestData(config: {
   for (let i = 0; i < totalTrailers; i++) {
     const trailer = await prisma.trailer.create({
       data: {
-        licensePlate: `TEST-TRL-${Date.now()}-${i}`,
+        plate: `TEST-TRL-${Date.now()}-${i}`,
         capacityLiters: LITERS_PER_TRAILER,
         baseLocationId: tirano.id,
         isActive: true,
@@ -153,7 +151,7 @@ async function cleanupTestData(setup: TestSetup): Promise<void> {
     await prisma.trip.deleteMany({
       where: { scheduleId: setup.scheduleId },
     });
-    await prisma.scheduleTrailerState.deleteMany({
+    await prisma.scheduleInitialState.deleteMany({
       where: { scheduleId: setup.scheduleId },
     });
     await prisma.scheduleVehicleState.deleteMany({
