@@ -1738,74 +1738,27 @@ export async function calculateMaxCapacity(
       // =====================================================================
       let livignoSuppliesDone = 0;
 
-      if (!isLastDay) {
-        // Calcola quanti SUPPLY servono basandosi sui driver di domani (Tirano + Livigno)
-        const tomorrowTiranoDrivers = tiranoPerDay[day + 1] || [];
-        const tomorrowLivignoDrivers = livignoPerDay[day + 1] || [];
-        const tomorrowTiranoHours = tomorrowTiranoDrivers.reduce((sum, d) => sum + d.maxHours, 0);
-        const tomorrowLivignoHours = tomorrowLivignoDrivers.reduce((sum, d) => sum + d.maxHours, 0);
-        // Driver Tirano: SHUTTLE standard; Driver Livigno: SHUTTLE (consumano fullTanksAtTirano)
-        const tomorrowShuttlePotential = Math.floor(tomorrowTiranoHours / HOURS_SHUTTLE) +
-                                         Math.floor(tomorrowLivignoHours / HOURS_SHUTTLE);
-        const currentResources = fullTanksAtTirano + fullTrailers;
-        const resourcesNeeded = Math.max(0, tomorrowShuttlePotential - currentResources);
-        const suppliesWanted = Math.ceil(resourcesNeeded / 2);
-
-        // Prima: fai SUPPLY con i driver Tirano che hanno tempo (più efficiente, 6h)
-        for (const [driverId, hoursLeft] of tiranoDriverHours) {
-          if (suppliesDone >= suppliesWanted) break;
-          if (hoursLeft < HOURS_SUPPLY) continue;
-          if (emptyTrailers <= 0) break;
-          if (emptyTanksAtTirano <= 0) break;
-
-          tiranoDriverHours.set(driverId, hoursLeft - HOURS_SUPPLY);
-          emptyTrailers--;
-          emptyTanksAtTirano--;
-          pendingFullTrailers++;
-          pendingFullTanks++;
-          totalSupply++;
-          suppliesDone++;
-        }
-
-      }
-
-      // Driver Livigno: SUPPLY_FROM_LIVIGNO (10h con eccezione ADR)
-      // Consegna 17.500L E produce 1 rimorchio pieno.
-      if (vehiclesAtLivigno > 0) {
-        for (const [driverId, hoursLeft] of livignoDriverHours) {
-          if (hoursLeft < MAX_DAILY_HOURS) continue;
-          if (emptyTrailers <= 0) break;
-
-          const usedExceptions = livignoAdrExceptions.get(driverId) || 0;
-          if (usedExceptions >= MAX_ADR_EXTENDED_PER_WEEK) continue;
-
-          livignoDriverHours.set(driverId, 0);
-          livignoAdrExceptions.set(driverId, usedExceptions + 1);
-          totalAdrExceptionsUsed++;
-          emptyTrailers--;
-          pendingFullTrailers++;
-          totalSupplyFromLivigno++;
-          livignoSuppliesDone++;
-          suppliesDone++;
-          litersToday += LITERS_PER_INTEGRATED_TANK;
-        }
-      }
-
-      // Driver Tirano: SUPPLY+SHUTTLE combo (10h con eccezione ADR)
-      // Usa quando: driver ha 9h + eccezione ADR + ci sono rimorchi vuoti
-      // E non ci sono abbastanza risorse piene per fare 2 SHUTTLE (8h)
-      // In questo caso SUPPLY+SHUTTLE (10h, 17.500L) è meglio di SUPPLY semplice (6h, 0L)
-      const totalResourcesForShuttle = fullTanksAtTirano + fullTrailers + pendingFullTrailers + pendingFullTanks;
+      // =====================================================================
+      // STEP 1: SUPPLY+SHUTTLE combo per driver Tirano (PRIMA di SUPPLY standard)
+      // =====================================================================
+      // Calcolo basato su risorse INIZIALI del giorno.
+      // Se non ci sono abbastanza risorse per 2 SHUTTLE per ogni driver,
+      // alcuni driver fanno SUPPLY+SHUTTLE combo (10h, 1 ADR) per:
+      // - Produrre 1 rimorchio pieno
+      // - Consegnare 17.500L
+      // Questo è meglio di SUPPLY standard (6h, 0L) + 3h inutilizzate.
+      const initialResourcesForShuttle = fullTanksAtTirano + fullTrailers;
       const tiranoDriversWithFullHours = Array.from(tiranoDriverHours.values()).filter(h => h >= MAX_DAILY_HOURS).length;
       // Ogni risorsa piena = 1 SHUTTLE, ogni driver con 9h può fare max 2 SHUTTLE
-      const shuttlesPossibleWithResources = Math.min(totalResourcesForShuttle, tiranoDriversWithFullHours * 2);
-      const driversWithoutEnoughResources = tiranoDriversWithFullHours - Math.ceil(shuttlesPossibleWithResources / 2);
+      const shuttlesPossibleWithInitialResources = Math.min(initialResourcesForShuttle, tiranoDriversWithFullHours * 2);
+      // Driver che non possono fare 2 SHUTTLE con le risorse iniziali
+      const driversNeedingCombo = Math.max(0, tiranoDriversWithFullHours - Math.floor(shuttlesPossibleWithInitialResources / 2));
 
       // Per ogni driver che non ha risorse per 2 SHUTTLE, fare SUPPLY+SHUTTLE combo
-      if (driversWithoutEnoughResources > 0 && emptyTrailers > 0 && emptyTanksAtTirano > 0) {
+      if (driversNeedingCombo > 0 && emptyTrailers > 0 && emptyTanksAtTirano > 0) {
         let combosDone = 0;
         for (const [driverId, hoursLeft] of tiranoDriverHours) {
-          if (combosDone >= driversWithoutEnoughResources) break;
+          if (combosDone >= driversNeedingCombo) break;
           if (hoursLeft < MAX_DAILY_HOURS) continue;
           if (emptyTrailers <= 0) break;
           if (emptyTanksAtTirano <= 0) break;
@@ -1827,6 +1780,39 @@ export async function calculateMaxCapacity(
           suppliesDone++;
           combosDone++;
           litersToday += LITERS_PER_INTEGRATED_TANK;
+        }
+      }
+
+      // =====================================================================
+      // STEP 2: SUPPLY standard per driver Tirano (DOPO combo)
+      // =====================================================================
+      // I driver che non hanno fatto combo possono fare SUPPLY standard (6h)
+      // per produrre risorse per domani. Ma avranno solo 3h rimaste, non abbastanza per SHUTTLE.
+      // NOTA: Driver Livigno è gestito nella FASE 2 (dinamicamente decide SHUTTLE vs SUPPLY).
+      if (!isLastDay) {
+        const tomorrowTiranoDrivers = tiranoPerDay[day + 1] || [];
+        const tomorrowLivignoDrivers = livignoPerDay[day + 1] || [];
+        const tomorrowTiranoHours = tomorrowTiranoDrivers.reduce((sum, d) => sum + d.maxHours, 0);
+        const tomorrowLivignoHours = tomorrowLivignoDrivers.reduce((sum, d) => sum + d.maxHours, 0);
+        const tomorrowShuttlePotential = Math.floor(tomorrowTiranoHours / HOURS_SHUTTLE) +
+                                         Math.floor(tomorrowLivignoHours / HOURS_SHUTTLE);
+        const currentResources = fullTanksAtTirano + fullTrailers + pendingFullTrailers + pendingFullTanks;
+        const resourcesNeeded = Math.max(0, tomorrowShuttlePotential - currentResources);
+        const suppliesWanted = Math.ceil(resourcesNeeded / 2);
+
+        for (const [driverId, hoursLeft] of tiranoDriverHours) {
+          if (suppliesDone >= suppliesWanted) break;
+          if (hoursLeft < HOURS_SUPPLY) continue;
+          if (emptyTrailers <= 0) break;
+          if (emptyTanksAtTirano <= 0) break;
+
+          tiranoDriverHours.set(driverId, hoursLeft - HOURS_SUPPLY);
+          emptyTrailers--;
+          emptyTanksAtTirano--;
+          pendingFullTrailers++;
+          pendingFullTanks++;
+          totalSupply++;
+          suppliesDone++;
         }
       }
 
