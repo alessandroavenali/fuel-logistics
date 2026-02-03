@@ -26,6 +26,16 @@ Sistema di ottimizzazione logistica per trasporto carburante Milano → Tirano �
 - **Rimorchi**: serbatoi aggiuntivi da 17.500L trainabili dalle motrici
 - **Capacità totale per viaggio**: motrice (17.500L) + rimorchio (17.500L) = 35.000L
 
+### Terminologia
+
+| Termine | Significato |
+|---------|-------------|
+| **Serbatoio integrato** | Tank fisso nella motrice (17.500L, non staccabile) |
+| **Rimorchio** | Trailer con serbatoio aggiuntivo (17.500L, trainabile) |
+| **Motrice** | Veicolo con serbatoio integrato, può trainare 1-2 rimorchi |
+
+**Nota**: Il campo DB `adrCisternExpiry` mantiene il nome originale (certificazione ADR cisterne).
+
 ## Workflow di Sviluppo
 
 ### CI/CD Automatico
@@ -111,6 +121,7 @@ docker compose build --no-cache && docker compose up -d
 
 ## Cronologia Recente
 
+- **2026-02-03**: Rinominata terminologia cisterne → rimorchi/serbatoio integrato
 - **2026-02-03**: Aggiunto CI/CD GitHub Actions, allineato seed con DB locale
 - **2026-02-03**: Deploy Docker su flipr-nue con security isolation
 - **2026-02-01**: Feature stato iniziale eccezioni ADR

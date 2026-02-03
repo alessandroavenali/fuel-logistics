@@ -2,6 +2,30 @@
 
 ## [Unreleased]
 
+### Changed - Terminologia: cisterne → rimorchi (2026-02-03)
+
+Standardizzata la terminologia in tutto il codebase:
+
+| Prima | Dopo | Significato |
+|-------|------|-------------|
+| cisterna integrata | serbatoio integrato | Tank fisso della motrice (17.500L) |
+| cisterne | rimorchi | Trailer aggiuntivi (17.500L) |
+
+**File aggiornati**: documentazione, schema Prisma, seed, optimizer, UI frontend.
+
+**Non modificato**: campo DB `adrCisternExpiry` (richiederebbe migrazione).
+
+---
+
+### Added - CI/CD GitHub Actions (2026-02-03)
+
+Deploy automatico su flipr-nue ad ogni push su `main`:
+- Workflow: `.github/workflows/deploy.yml`
+- SSH con chiave dedicata (`github_deploy_fuel`)
+- Rebuild container + migrazioni Prisma automatiche
+
+---
+
 ### Added - Stato Iniziale Eccezioni ADR per Driver (2026-02-01)
 
 Aggiunta la possibilità di specificare quante eccezioni ADR ogni driver ha già usato nella settimana corrente, prima di lanciare l'ottimizzazione.
