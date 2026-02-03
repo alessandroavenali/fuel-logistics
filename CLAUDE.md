@@ -107,6 +107,21 @@ docker compose build --no-cache && docker compose up -d
 - Seed: `backend/prisma/seed.ts`
 - Il seed **cancella tutti i dati** prima di ripopolare (usare con cautela in produzione)
 
+**Migrazioni DB** (quando modifichi `schema.prisma`):
+```bash
+# 1. In locale: crea la migrazione
+cd backend && npx prisma migrate dev --name <nome_descrittivo>
+
+# 2. Commit dei file generati
+git add prisma/migrations/
+git commit -m "db: Add migration <nome>"
+git push origin main
+
+# 3. CI/CD applica automaticamente la migrazione
+```
+
+**IMPORTANTE**: Il CI/CD usa solo `migrate deploy`. Se lo schema non è allineato, il deploy fallisce con istruzioni.
+
 ### TypeScript
 
 - Backend: compila con `tsc`, test esclusi dalla build produzione

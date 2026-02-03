@@ -29,8 +29,20 @@ jobs:
 
             echo "=== Running migrations ==="
             sleep 10  # Wait for backend to start
-            docker compose exec -T backend npx prisma migrate deploy || \
-              docker compose exec -T backend npx prisma db push --accept-data-loss
+
+            # Solo migrate deploy - fallisce se schema non allineato
+            # Per modifiche DB: creare migrazione locale con `npx prisma migrate dev`
+            if ! docker compose exec -T backend npx prisma migrate deploy; then
+              echo ""
+              echo "❌ MIGRAZIONE FALLITA!"
+              echo ""
+              echo "Lo schema DB non è allineato. Azioni richieste:"
+              echo "1. In locale: cd backend && npx prisma migrate dev --name <nome>"
+              echo "2. Commit e push dei file in prisma/migrations/"
+              echo "3. Il deploy ripartirà automaticamente"
+              echo ""
+              exit 1
+            fi
 
             echo "=== Deployment complete ==="
             docker compose ps
