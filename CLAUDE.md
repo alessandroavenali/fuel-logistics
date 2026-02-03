@@ -143,7 +143,37 @@ git push origin main
 
 ## Cronologia Recente
 
+- **2026-02-03**: Ottimizzazione ADR multi-giorno
+  - Fix: emptyTanksAtTirano non contava correttamente motrici Livigno
+  - Fix: calcolo SUPPLY+SHUTTLE trigger (1 risorsa = 1 SHUTTLE)
+  - Fix: pendingFullTrailers persi nella FASE 2
+  - Refactor: SUPPLY+SHUTTLE combo valutato PRIMA di SUPPLY standard
+  - Refactor: driver Livigno decide dinamicamente SHUTTLE vs SUPPLY in FASE 2
+  - Risultato: ADR usate solo quando aumentano i litri, Marco fa quasi sempre SHUTTLE
 - **2026-02-03**: Rinominata terminologia cisterne → rimorchi/serbatoio integrato
 - **2026-02-03**: Aggiunto CI/CD GitHub Actions, allineato seed con DB locale
 - **2026-02-03**: Deploy Docker su flipr-nue con security isolation
 - **2026-02-01**: Feature stato iniziale eccezioni ADR
+
+## Algoritmo Ottimizzazione (v2)
+
+### Fasi giornaliere
+
+1. **STEP 1 - SUPPLY+SHUTTLE combo**: driver Tirano senza risorse iniziali fanno combo (10h, 1 ADR)
+2. **STEP 2 - SUPPLY standard**: driver Tirano rimanenti producono risorse per domani (6h, 0 ADR)
+3. **FASE 2 - Consegne**: while loop che assegna SHUTTLE, TRANSFER, SUPPLY_FROM_LIVIGNO
+
+### Tipi di trip
+
+| Trip | Durata | Chi | Consegna | Risorse |
+|------|--------|-----|----------|---------|
+| SHUTTLE_LIVIGNO | 4h | Tirano | 17.500L | Consuma motrice piena |
+| SUPPLY_MILANO | 6h | Tirano | 0L | Produce rimorchio + motrice pieni |
+| SUPPLY+SHUTTLE combo | 10h | Tirano (ADR) | 17.500L | Produce rimorchio pieno |
+| TRANSFER | 0.5h | Tirano | 0L | Rimorchio → motrice |
+| SHUTTLE_FROM_LIVIGNO | 4.5h | Livigno | 17.500L | Consuma rimorchio pieno (TRANSFER implicito) |
+| SUPPLY_FROM_LIVIGNO | 10h | Livigno (ADR) | 17.500L | Produce rimorchio pieno |
+
+### Vincolo critico
+
+**I rimorchi NON salgono MAI a Livigno.** Vengono sganciati/travasati a Tirano.

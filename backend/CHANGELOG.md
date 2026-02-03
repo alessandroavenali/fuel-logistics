@@ -1,5 +1,30 @@
 # Changelog
 
+## [2026-02-03] - Ottimizzazione ADR multi-giorno
+
+### Fixed
+- **Bug emptyTanksAtTirano**: il conteggio includeva erroneamente il driver Livigno, ma la sua motrice resta a Livigno (non torna a Tirano)
+- **Bug calcolo SUPPLY+SHUTTLE trigger**: la formula `totalResources * 2` era sbagliata - ogni risorsa piena permette 1 SHUTTLE, non 2
+- **Bug pendingFullTrailers FASE 2**: i rimorchi prodotti da SUPPLY_FROM_LIVIGNO nella FASE 2 andavano persi (usavano `pendingFullTrailers++` che non veniva mai materializzato)
+
+### Changed
+- **Ordine FASE 1 ottimizzato**: SUPPLY+SHUTTLE combo ora valutato PRIMA di SUPPLY standard
+  - Usa risorse INIZIALI per decidere, non post-SUPPLY
+  - Evita che i driver consumino ore con SUPPLY standard (6h) per poi non avere abbastanza ore per SHUTTLE (4h)
+- **Driver Livigno delegato a FASE 2**: la decisione SHUTTLE vs SUPPLY avviene dinamicamente
+  - Se ci sono rimorchi pieni → 2× SHUTTLE_FROM_LIVIGNO (35.000L, 0 ADR)
+  - Se non ci sono → SUPPLY_FROM_LIVIGNO (17.500L, 1 ADR)
+  - Risparmia ADR di Marco per i giorni in cui Tirano ha esaurito le sue
+
+### Results
+- **1 giorno, 0 pieni**: 70.000L, 2 ADR (Tirano), Marco fa SHUTTLE (non SUPPLY)
+- **5 giorni, 5 driver**: 420.000L, 9 ADR, 84.000L/giorno
+- **14 giorni, 3 driver**: 805.000L, 11 ADR
+- Le ADR vengono usate solo quando aumentano i litri totali
+- Nessun litro avanza a Tirano alla fine del periodo (bilancio risorse perfetto)
+
+---
+
 ## [Unreleased]
 
 ### Added
