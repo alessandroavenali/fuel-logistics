@@ -1767,41 +1767,75 @@ export async function calculateMaxCapacity(
           suppliesDone++;
         }
 
-        // Poi: se servono ancora SUPPLY, usa driver Livigno con eccezione ADR (10h)
-        // L'eccezione ADR permette di estendere da 9h a 10h, max 2 volte/settimana
-        if (suppliesDone < suppliesWanted) {
-          for (const [driverId, hoursLeft] of livignoDriverHours) {
-            if (suppliesDone >= suppliesWanted) break;
-            // Il driver deve avere tutte le sue ore disponibili (giornata piena)
-            // perché SUPPLY Livigno (10h) consuma tutta la giornata + 1h eccezione
-            if (hoursLeft < MAX_DAILY_HOURS) continue;
-            if (emptyTrailers <= 0) break;
-            if (emptyTanksAtTirano <= 0) break;
+      }
 
-            // Verifica limite eccezioni ADR (max 2/settimana)
-            const usedExceptions = livignoAdrExceptions.get(driverId) || 0;
-            if (usedExceptions >= MAX_ADR_EXTENDED_PER_WEEK) continue;
+      // Driver Livigno: SUPPLY_FROM_LIVIGNO (10h con eccezione ADR)
+      // Consegna 17.500L E produce 1 rimorchio pieno.
+      if (vehiclesAtLivigno > 0) {
+        for (const [driverId, hoursLeft] of livignoDriverHours) {
+          if (hoursLeft < MAX_DAILY_HOURS) continue;
+          if (emptyTrailers <= 0) break;
 
-            // Usa l'eccezione ADR: estende da 9h a 10h
-            livignoDriverHours.set(driverId, 0); // Consuma tutta la giornata
-            livignoAdrExceptions.set(driverId, usedExceptions + 1);
-            totalAdrExceptionsUsed++;
-            emptyTrailers--;
-            emptyTanksAtTirano--;
-            pendingFullTrailers++;
-            pendingFullTanks++;
-            totalLivignoSupply++;
-            livignoSuppliesDone++;
-            suppliesDone++;
-          }
+          const usedExceptions = livignoAdrExceptions.get(driverId) || 0;
+          if (usedExceptions >= MAX_ADR_EXTENDED_PER_WEEK) continue;
+
+          livignoDriverHours.set(driverId, 0);
+          livignoAdrExceptions.set(driverId, usedExceptions + 1);
+          totalAdrExceptionsUsed++;
+          emptyTrailers--;
+          pendingFullTrailers++;
+          totalSupplyFromLivigno++;
+          livignoSuppliesDone++;
+          suppliesDone++;
+          litersToday += LITERS_PER_INTEGRATED_TANK;
+        }
+      }
+
+      // Driver Tirano: SUPPLY+SHUTTLE combo (10h con eccezione ADR)
+      // Usa quando: driver ha 9h + eccezione ADR + ci sono rimorchi vuoti
+      // E non ci sono abbastanza risorse piene per fare 2 SHUTTLE (8h)
+      // In questo caso SUPPLY+SHUTTLE (10h, 17.500L) è meglio di SUPPLY semplice (6h, 0L)
+      const totalResourcesForShuttle = fullTanksAtTirano + fullTrailers + pendingFullTrailers + pendingFullTanks;
+      const tiranoDriversWithFullHours = Array.from(tiranoDriverHours.values()).filter(h => h >= MAX_DAILY_HOURS).length;
+      // Ogni risorsa piena = 1 SHUTTLE, ogni driver con 9h può fare max 2 SHUTTLE
+      const shuttlesPossibleWithResources = Math.min(totalResourcesForShuttle, tiranoDriversWithFullHours * 2);
+      const driversWithoutEnoughResources = tiranoDriversWithFullHours - Math.ceil(shuttlesPossibleWithResources / 2);
+
+      // Per ogni driver che non ha risorse per 2 SHUTTLE, fare SUPPLY+SHUTTLE combo
+      if (driversWithoutEnoughResources > 0 && emptyTrailers > 0 && emptyTanksAtTirano > 0) {
+        let combosDone = 0;
+        for (const [driverId, hoursLeft] of tiranoDriverHours) {
+          if (combosDone >= driversWithoutEnoughResources) break;
+          if (hoursLeft < MAX_DAILY_HOURS) continue;
+          if (emptyTrailers <= 0) break;
+          if (emptyTanksAtTirano <= 0) break;
+
+          const tiranoUsedExceptions = tiranoAdrExceptions.get(driverId) || 0;
+          if (tiranoUsedExceptions >= MAX_ADR_EXTENDED_PER_WEEK) continue;
+
+          // SUPPLY+SHUTTLE combo
+          emptyTrailers--;
+          emptyTanksAtTirano--;
+          pendingFullTrailers++;  // Rimorchio torna pieno
+          // Motrice torna vuota dopo SHUTTLE (non pendingFullTanks)
+
+          tiranoDriverHours.set(driverId, 0);
+          tiranoAdrExceptions.set(driverId, tiranoUsedExceptions + 1);
+          totalAdrExceptionsUsed++;
+          totalSupply++;
+          totalShuttle++;
+          suppliesDone++;
+          combosDone++;
+          litersToday += LITERS_PER_INTEGRATED_TANK;
         }
       }
 
       // Le risorse SUPPLY arrivano (disponibili per il pomeriggio)
       fullTrailers += pendingFullTrailers;
       fullTanksAtTirano += pendingFullTanks;
-      // Le motrici tornano (solo quelle usate da driver Tirano, i driver Livigno riportano la motrice a Tirano)
-      emptyTanksAtTirano += suppliesDone;
+      // Le motrici tornano a Tirano (solo quelle usate da driver Tirano)
+      // NOTA: il driver Livigno NON riporta la motrice a Tirano - resta a Livigno
+      emptyTanksAtTirano += (suppliesDone - livignoSuppliesDone);
 
       // =====================================================================
       // FASE 2: SHUTTLE e TRANSFER (driver Tirano e Livigno in parallelo)
@@ -1841,7 +1875,7 @@ export async function calculateMaxCapacity(
             const usedExceptions = livignoAdrExceptions.get(driverId) || 0;
             if (emptyTrailers > 0 && hoursLeft >= MAX_DAILY_HOURS && usedExceptions < MAX_ADR_EXTENDED_PER_WEEK) {
               emptyTrailers--;
-              pendingFullTrailers++;  // Rimorchio torna pieno a Tirano
+              fullTrailers++;  // Rimorchio torna pieno a Tirano (disponibile per domani)
               // Motrice resta a Livigno
               livignoDriverHours.set(driverId, 0);  // Giornata finita (10h)
               livignoAdrExceptions.set(driverId, usedExceptions + 1);
