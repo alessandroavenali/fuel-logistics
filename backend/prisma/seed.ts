@@ -69,7 +69,7 @@ async function main() {
         fromLocationId: tirano.id,
         toLocationId: livigno.id,
         distanceKm: 45,
-        durationMinutes: 90, // 1.5h (montagna, max 1 cisterna)
+        durationMinutes: 120, // 2h (salita, montagna)
         tollCost: 0,
       },
       {
@@ -77,7 +77,7 @@ async function main() {
         fromLocationId: livigno.id,
         toLocationId: tirano.id,
         distanceKm: 45,
-        durationMinutes: 90, // 1.5h (montagna, max 1 cisterna)
+        durationMinutes: 90, // 1.5h (discesa)
         tollCost: 0,
       },
       {
@@ -93,31 +93,32 @@ async function main() {
 
   console.log('Created 4 routes');
 
-  // Create 4 vehicles (motrici)
+  // Create 4 vehicles (motrici con cisterna integrata 17,500L)
+  // FG001AA base Livigno, altri base Tirano
   const vehicles = await Promise.all([
     prisma.vehicle.create({
-      data: { plate: 'FG001AA', name: 'Motrice Alfa', maxTrailers: 2 },
+      data: { plate: 'FG001AA', name: 'Motrice Alfa', maxTrailers: 2, baseLocationId: livigno.id },
     }),
     prisma.vehicle.create({
-      data: { plate: 'FG002BB', name: 'Motrice Beta', maxTrailers: 2 },
+      data: { plate: 'FG002BB', name: 'Motrice Beta', maxTrailers: 2, baseLocationId: tirano.id },
     }),
     prisma.vehicle.create({
-      data: { plate: 'FG003CC', name: 'Motrice Gamma', maxTrailers: 2 },
+      data: { plate: 'FG003CC', name: 'Motrice Gamma', maxTrailers: 2, baseLocationId: tirano.id },
     }),
     prisma.vehicle.create({
-      data: { plate: 'FG004DD', name: 'Motrice Delta', maxTrailers: 2 },
+      data: { plate: 'FG004DD', name: 'Motrice Delta', maxTrailers: 2, baseLocationId: tirano.id },
     }),
   ]);
 
   console.log('Created 4 vehicles:', vehicles.map(v => v.plate).join(', '));
 
-  // Create 4 trailers (rimorchi) - 17,500L each
+  // Create 4 trailers (rimorchi) - 17,500L each, tutti base Tirano
   // Le motrici hanno già cisterna integrata da 17,500L, i rimorchi sono aggiuntivi
   const trailers = await Promise.all([
-    prisma.trailer.create({ data: { plate: 'RIM-001', name: 'Rimorchio 1', capacityLiters: 17500 } }),
-    prisma.trailer.create({ data: { plate: 'RIM-002', name: 'Rimorchio 2', capacityLiters: 17500 } }),
-    prisma.trailer.create({ data: { plate: 'RIM-003', name: 'Rimorchio 3', capacityLiters: 17500 } }),
-    prisma.trailer.create({ data: { plate: 'RIM-004', name: 'Rimorchio 4', capacityLiters: 17500 } }),
+    prisma.trailer.create({ data: { plate: 'RIM-001', name: 'Rimorchio 1', capacityLiters: 17500, baseLocationId: tirano.id } }),
+    prisma.trailer.create({ data: { plate: 'RIM-002', name: 'Rimorchio 2', capacityLiters: 17500, baseLocationId: tirano.id } }),
+    prisma.trailer.create({ data: { plate: 'RIM-003', name: 'Rimorchio 3', capacityLiters: 17500, baseLocationId: tirano.id } }),
+    prisma.trailer.create({ data: { plate: 'RIM-004', name: 'Rimorchio 4', capacityLiters: 17500, baseLocationId: tirano.id } }),
   ]);
 
   console.log('Created 4 trailers (17,500L each):', trailers.map(t => t.plate).join(', '));
@@ -229,12 +230,13 @@ async function main() {
   console.log('\n✅ Seeding completed successfully!');
   console.log('\nSummary:');
   console.log('  - 3 locations (Milano, Tirano, Livigno)');
-  console.log('  - 4 routes (Tirano-Livigno: 90min, Tirano-Milano: 150min)');
-  console.log('  - 4 vehicles (motrici con cisterna integrata 17,500L)');
-  console.log('  - 4 trailers (rimorchi 17,500L)');
-  console.log('  - 5 drivers:');
-  console.log('      1 base Livigno (Marco Bianchi - max 3 shuttle/giorno)');
-  console.log('      4 base Tirano (mix SUPPLY/SHUTTLE)');
+  console.log('  - 4 routes:');
+  console.log('      Tirano→Livigno: 120min (salita)');
+  console.log('      Livigno→Tirano: 90min (discesa)');
+  console.log('      Milano↔Tirano: 150min');
+  console.log('  - 4 vehicles (motrici 17,500L): 1 Livigno, 3 Tirano');
+  console.log('  - 4 trailers (rimorchi 17,500L): tutti Tirano');
+  console.log('  - 5 drivers: 1 Livigno, 4 Tirano');
 }
 
 main()
