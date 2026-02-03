@@ -84,6 +84,7 @@ export const createScheduleSchema = z.object({
   vehicleStates: z.array(z.object({
     vehicleId: z.string().uuid(),
     locationId: z.string().uuid(),
+    isTankFull: z.boolean().optional(),
   })).optional(),
 });
 

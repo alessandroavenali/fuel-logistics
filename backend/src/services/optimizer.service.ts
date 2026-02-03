@@ -1650,6 +1650,7 @@ export async function calculateMaxCapacity(
       livignoSupplyTrips: number;
       shuttleFromLivigno: number;
       supplyFromLivigno: number;
+      adrExceptionsUsed: number;
     };
     daysWithDeliveries: number;
   } => {
@@ -1667,6 +1668,7 @@ export async function calculateMaxCapacity(
           livignoSupplyTrips: 0,
           shuttleFromLivigno: 0,
           supplyFromLivigno: 0,
+          adrExceptionsUsed: 0,
         },
         daysWithDeliveries: 0,
       };
