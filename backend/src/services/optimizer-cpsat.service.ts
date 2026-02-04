@@ -1060,6 +1060,21 @@ function getWorkingDays(startDate: Date, endDate: Date, includeWeekend: boolean 
   return days;
 }
 
+function getCalendarDays(startDate: Date, endDate: Date): Date[] {
+  const days: Date[] = [];
+  const current = new Date(startDate);
+  current.setHours(12, 0, 0, 0);
+  const end = new Date(endDate);
+  end.setHours(12, 0, 0, 0);
+
+  while (current <= end) {
+    days.push(new Date(current));
+    current.setDate(current.getDate() + 1);
+  }
+
+  return days;
+}
+
 function parseInputDate(value: string | Date): Date {
   if (value instanceof Date) {
     const d = new Date(value);
@@ -1133,12 +1148,15 @@ export async function runCPSATOptimizer(
   const tiranoVehicles = vehicles.filter(v => v.baseLocationId !== livignoLocation.id);
   const livignoVehicles = vehicles.filter(v => v.baseLocationId === livignoLocation.id);
 
-  // Get working days (respecting includeWeekend setting)
-  const workingDays = getWorkingDays(schedule.startDate, schedule.endDate, schedule.includeWeekend);
-  if (workingDays.length === 0) {
-    throw new Error('No working days in schedule range');
+  const hasExplicitAvailability = !!(driverAvailability && driverAvailability.length > 0);
+  // If availability is explicit, use full calendar range and let per-day availability drive counts.
+  // This allows weekend planning when a driver is explicitly available on weekend days.
+  const planningDays = hasExplicitAvailability
+    ? getCalendarDays(schedule.startDate, schedule.endDate)
+    : getWorkingDays(schedule.startDate, schedule.endDate, schedule.includeWeekend);
+  if (planningDays.length === 0) {
+    throw new Error('No planning days in schedule range');
   }
-  const allDates = workingDays.map(d => d.toISOString().split('T')[0]);
 
   // Determine which drivers to use for conversion
   // IMPORTANT: The driver list used for conversion MUST match what the solver receives
@@ -1149,13 +1167,13 @@ export async function runCPSATOptimizer(
   const tiranoDriversPerDay: number[] = [];
   const livignoDriversPerDay: number[] = [];
 
-  if (driverAvailability && driverAvailability.length > 0) {
+  if (hasExplicitAvailability) {
     // Use explicit availability - filter drivers to only those with availability
     const availableDriverIds = new Set(driverAvailability.map(a => a.driverId));
     tiranoDriversForConversion = allTiranoDrivers.filter(d => availableDriverIds.has(d.id));
     livignoDriversForConversion = allLivignoDrivers.filter(d => availableDriverIds.has(d.id));
 
-    for (const day of workingDays) {
+    for (const day of planningDays) {
       const dateKey = day.toISOString().split('T')[0];
       let tiranoCount = 0;
       let livignoCount = 0;
@@ -1183,7 +1201,7 @@ export async function runCPSATOptimizer(
     tiranoDriversForConversion = allTiranoDrivers.filter(d => d.type === 'RESIDENT');
     livignoDriversForConversion = allLivignoDrivers.filter(d => d.type === 'RESIDENT');
 
-    for (const _day of workingDays) {
+    for (const _day of planningDays) {
       tiranoDriversPerDay.push(tiranoDriversForConversion.length);
       livignoDriversPerDay.push(livignoDriversForConversion.length);
     }
@@ -1207,8 +1225,8 @@ export async function runCPSATOptimizer(
 
   // Build solver input
   // IMPORTANT: Use actual working days, not schedule dates (which may include weekends)
-  const solverStartDate = workingDays[0];
-  const solverEndDate = workingDays[workingDays.length - 1];
+  const solverStartDate = planningDays[0];
+  const solverEndDate = planningDays[planningDays.length - 1];
 
   const solverInput = createSolverInput({
     startDate: solverStartDate,
@@ -1224,7 +1242,7 @@ export async function runCPSATOptimizer(
     // Parallel search can produce alternate optimal plans that are harder to map
     // to concrete resource identities with the current converter.
     numSearchWorkers: 1,
-    includeWeekend: schedule.includeWeekend,
+    includeWeekend: hasExplicitAvailability ? true : schedule.includeWeekend,
   });
 
   // Run solver
@@ -1448,7 +1466,10 @@ export async function calculateMaxCapacityCPSAT(
 ): Promise<MaxCapacityResult> {
   const startDate = parseInputDate(input.startDate);
   const endDate = parseInputDate(input.endDate);
-  const workingDays = getWorkingDays(startDate, endDate, input.includeWeekend ?? false);
+  const hasExplicitAvailability = !!(input.driverAvailability && input.driverAvailability.length > 0);
+  const planningDays = hasExplicitAvailability
+    ? getCalendarDays(startDate, endDate)
+    : getWorkingDays(startDate, endDate, input.includeWeekend ?? false);
   const constraints: string[] = [];
 
   // Fetch resources
@@ -1482,7 +1503,7 @@ export async function calculateMaxCapacityCPSAT(
   const tiranoDriversPerDay: number[] = [];
   const livignoDriversPerDay: number[] = [];
 
-  for (const day of workingDays) {
+  for (const day of planningDays) {
     const dateKey = day.toISOString().split('T')[0];
 
     let tiranoCount = 0;
@@ -1534,7 +1555,7 @@ export async function calculateMaxCapacityCPSAT(
 
   // Build and run solver
   // IMPORTANT: Use actual working days, not input dates (which may include weekends)
-  if (workingDays.length === 0) {
+  if (planningDays.length === 0) {
     return {
       maxLiters: 0,
       workingDays: 0,
@@ -1555,8 +1576,8 @@ export async function calculateMaxCapacityCPSAT(
     };
   }
 
-  const solverStartDate = workingDays[0];
-  const solverEndDate = workingDays[workingDays.length - 1];
+  const solverStartDate = planningDays[0];
+  const solverEndDate = planningDays[planningDays.length - 1];
 
   const solverInput = createSolverInput({
     startDate: solverStartDate,
@@ -1568,7 +1589,7 @@ export async function calculateMaxCapacityCPSAT(
     initialFullTrailers,
     initialFullTractors,
     timeLimitSeconds: 60,
-    includeWeekend: input.includeWeekend ?? false,
+    includeWeekend: hasExplicitAvailability ? true : (input.includeWeekend ?? false),
   });
 
   let solverResult: SolverOutput;
@@ -1578,7 +1599,7 @@ export async function calculateMaxCapacityCPSAT(
     constraints.push(`Solver error: ${error}`);
     return {
       maxLiters: 0,
-      workingDays: workingDays.length,
+      workingDays: planningDays.length,
       daysWithDeliveries: 0,
       breakdown: {
         livignoDriverShuttles: 0,
@@ -1620,7 +1641,7 @@ export async function calculateMaxCapacityCPSAT(
 
   return {
     maxLiters,
-    workingDays: workingDays.length,
+    workingDays: planningDays.length,
     daysWithDeliveries,
     breakdown: {
       livignoDriverShuttles: 0,          // Legacy field, not used by CP-SAT
