@@ -1243,7 +1243,8 @@ export async function runCPSATOptimizer(
     numTractors: tiranoVehicles.length,
     initialFullTrailers,
     initialFullTractors,
-    timeLimitSeconds: 60,
+    // Complex scenarios (e.g., 30-day horizon, asymmetric availability) need longer solve time.
+    timeLimitSeconds: 600,
     // Keep solver output deterministic across runs to avoid conversion drift.
     // Parallel search can produce alternate optimal plans that are harder to map
     // to concrete resource identities with the current converter.
@@ -1644,9 +1645,9 @@ export async function calculateMaxCapacityCPSAT(
     numTractors: tiranoVehicles.length,
     initialFullTrailers,
     initialFullTractors,
-    // Keep MAX endpoint below common reverse-proxy timeouts.
-    // We prefer returning a FEASIBLE plan over intermittent 504s.
-    timeLimitSeconds: 45,
+    // MAX capacity can be an expensive solve on long horizons/asymmetric shifts.
+    // Keep the same long timeout as optimization runs.
+    timeLimitSeconds: 600,
     includeWeekend: hasExplicitAvailability ? true : (input.includeWeekend ?? false),
   });
 

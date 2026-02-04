@@ -166,6 +166,8 @@ export default function Schedules() {
   const [isMaxPreviewOpen, setIsMaxPreviewOpen] = useState(false);
   const [maxCapacityResult, setMaxCapacityResult] = useState<MaxCapacityResult | null>(null);
   const [includeWeekend, setIncludeWeekend] = useState(false);
+  const [maxCalcStartedAt, setMaxCalcStartedAt] = useState<number | null>(null);
+  const [maxCalcElapsedSeconds, setMaxCalcElapsedSeconds] = useState(0);
 
   const { data: schedules, isLoading } = useSchedules();
   const { data: trailers } = useTrailers(true); // Only active trailers
@@ -258,6 +260,17 @@ export default function Schedules() {
   useEffect(() => {
     setMaxCapacityResult(null);
   }, [workingDays]);
+
+  // Elapsed timer for long-running MAX calculations
+  useEffect(() => {
+    if (!calculateMaxMutation.isPending || maxCalcStartedAt === null) {
+      return;
+    }
+    const timer = setInterval(() => {
+      setMaxCalcElapsedSeconds(Math.floor((Date.now() - maxCalcStartedAt) / 1000));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [calculateMaxMutation.isPending, maxCalcStartedAt]);
 
   // Helper to toggle a single day for a driver
   const toggleDriverDay = (driverId: string, date: string) => {
@@ -383,6 +396,9 @@ export default function Schedules() {
     }
 
     try {
+      setMaxCalcStartedAt(Date.now());
+      setMaxCalcElapsedSeconds(0);
+
       // endDate deve essere a fine giornata (23:59:59) per includere l'ultimo giorno
       const endDateObj = new Date(formValues.endDate);
       endDateObj.setHours(23, 59, 59, 999);
@@ -398,11 +414,15 @@ export default function Schedules() {
       setMaxCapacityResult(result);
       setIsMaxPreviewOpen(true);
     } catch (error) {
+      const message = error instanceof Error ? error.message : 'Impossibile calcolare la capacità massima';
       toast({
         title: 'Errore',
-        description: 'Impossibile calcolare la capacità massima',
+        description: message,
         variant: 'destructive',
       });
+    } finally {
+      setMaxCalcStartedAt(null);
+      setMaxCalcElapsedSeconds(0);
     }
   };
 
@@ -578,6 +598,19 @@ export default function Schedules() {
                       MAX
                     </Button>
                   </div>
+                  {calculateMaxMutation.isPending && (
+                    <div className="mt-2 rounded-md border border-primary/30 bg-primary/5 p-2">
+                      <p className="text-xs font-medium text-primary">
+                        Calcolo MAX in corso ({maxCalcElapsedSeconds}s)
+                      </p>
+                      <p className="text-[11px] text-muted-foreground">
+                        Scenario complesso: può richiedere anche alcuni minuti (timeout server: 10 min).
+                      </p>
+                      <div className="mt-2 h-1.5 w-full overflow-hidden rounded bg-muted">
+                        <div className="h-full w-1/3 animate-pulse rounded bg-primary/70" />
+                      </div>
+                    </div>
+                  )}
                   {errors.requiredLiters && (
                     <p className="text-sm text-destructive">{errors.requiredLiters.message}</p>
                   )}

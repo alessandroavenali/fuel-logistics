@@ -13,8 +13,24 @@ class ApiError extends Error {
 
 async function handleResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Unknown error' }));
-    throw new ApiError(response.status, error.error || error.message, error.details);
+    const contentType = response.headers.get('content-type') || '';
+    let message = `HTTP ${response.status}`;
+    let details: any;
+
+    if (contentType.includes('application/json')) {
+      const error = await response.json().catch(() => ({}));
+      message = error.error || error.message || message;
+      details = error.details;
+    } else {
+      const text = await response.text().catch(() => '');
+      if (text.includes('504')) {
+        message = 'Timeout del server: il calcolo ha richiesto troppo tempo';
+      } else if (text.trim().length > 0) {
+        message = `${message}: ${text.slice(0, 120)}`;
+      }
+    }
+
+    throw new ApiError(response.status, message, details);
   }
 
   if (response.status === 204) {
