@@ -805,41 +805,40 @@ export default function Schedules() {
               <div className="space-y-2">
                 <p className="font-medium text-sm">Distribuzione viaggi stimata:</p>
                 <div className="grid grid-cols-2 gap-2 text-sm">
-                  <div className="bg-muted/50 p-2 rounded">
-                    <span className="text-muted-foreground">Shuttle Livigno:</span>
-                    <span className="font-medium ml-2">
-                      {maxCapacityResult.breakdown.livignoDriverShuttles}
-                    </span>
-                  </div>
-                  <div className="bg-muted/50 p-2 rounded">
-                    <span className="text-muted-foreground">Shuttle Tirano:</span>
+                  <div className="bg-blue-500/10 p-2 rounded border border-blue-500/30">
+                    <span className="text-blue-600">Tirano → Livigno:</span>
                     <span className="font-medium ml-2">
                       {maxCapacityResult.breakdown.tiranoDriverShuttles}
                     </span>
+                    <span className="text-xs text-muted-foreground ml-1">(17.5kL cad.)</span>
                   </div>
                   <div className="bg-cyan-500/10 p-2 rounded border border-cyan-500/30">
-                    <span className="text-cyan-600">Shuttle da Livigno:</span>
+                    <span className="text-cyan-600">Livigno → Tirano → Livigno:</span>
                     <span className="font-medium ml-2">
                       {maxCapacityResult.breakdown.shuttleFromLivigno || 0}
                     </span>
+                    <span className="text-xs text-muted-foreground ml-1">(17.5kL cad.)</span>
                   </div>
                   <div className="bg-pink-500/10 p-2 rounded border border-pink-500/30">
-                    <span className="text-pink-600">Supply da Livigno:</span>
+                    <span className="text-pink-600">Livigno → Milano → Livigno:</span>
                     <span className="font-medium ml-2">
                       {maxCapacityResult.breakdown.supplyFromLivigno || 0}
                     </span>
+                    <span className="text-xs text-muted-foreground ml-1">(ADR, 17.5kL)</span>
                   </div>
                   <div className="bg-muted/50 p-2 rounded">
-                    <span className="text-muted-foreground">Supply Milano:</span>
+                    <span className="text-muted-foreground">Tirano → Milano → Tirano:</span>
                     <span className="font-medium ml-2">
                       {maxCapacityResult.breakdown.supplyTrips}
                     </span>
+                    <span className="text-xs text-muted-foreground ml-1">(rifornimento)</span>
                   </div>
                   <div className="bg-muted/50 p-2 rounded">
-                    <span className="text-muted-foreground">Transfer:</span>
+                    <span className="text-muted-foreground">Transfer a Tirano:</span>
                     <span className="font-medium ml-2">
                       {maxCapacityResult.breakdown.transferTrips || 0}
                     </span>
+                    <span className="text-xs text-muted-foreground ml-1">(travaso)</span>
                   </div>
                 </div>
               </div>
