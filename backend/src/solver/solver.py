@@ -128,6 +128,12 @@ def solve(data: Dict) -> SolveResult:
         # Refill starts (Tirano, no driver required).
         R_start.append([model.new_int_var(0, total_trailers, f"R_{d}_{t}") for t in range(slots_per_day)])
 
+        # REFILL is a Tirano-yard operation and requires Tirano manpower in practice.
+        # If no Tirano drivers are available that day, disallow REFILL starts.
+        if int(days[d]["D_T"]) == 0:
+            for t in range(slots_per_day):
+                model.add(R_start[d][t] == 0)
+
         # Tirano drivers.
         S_day: List[List[cp_model.IntVar]] = []
         U_day: List[List[cp_model.IntVar]] = []
