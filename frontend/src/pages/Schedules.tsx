@@ -416,7 +416,7 @@ export default function Schedules() {
 
       const job = await schedulesApi.startCalculateMaxJob(payload);
 
-      const maxWaitMs = 10 * 60 * 1000;
+      const maxWaitMs = 60 * 60 * 1000;
       const pollEveryMs = 2000;
       const pollStart = Date.now();
       let result: MaxCapacityResult | null = null;
@@ -631,7 +631,7 @@ export default function Schedules() {
                         Calcolo MAX in corso ({maxCalcElapsedSeconds}s)
                       </p>
                       <p className="text-[11px] text-muted-foreground">
-                        Scenario complesso: può richiedere anche alcuni minuti (timeout server: 10 min).
+                        Scenario complesso: può richiedere anche molti minuti (timeout server: 60 min).
                       </p>
                       <div className="mt-2 h-1.5 w-full overflow-hidden rounded bg-muted">
                         <div className="h-full w-1/3 animate-pulse rounded bg-primary/70" />

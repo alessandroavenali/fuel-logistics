@@ -1244,7 +1244,7 @@ export async function runCPSATOptimizer(
     initialFullTrailers,
     initialFullTractors,
     // Complex scenarios (e.g., 30-day horizon, asymmetric availability) need longer solve time.
-    timeLimitSeconds: 600,
+    timeLimitSeconds: 3600,
     // Keep solver output deterministic across runs to avoid conversion drift.
     // Parallel search can produce alternate optimal plans that are harder to map
     // to concrete resource identities with the current converter.
@@ -1648,7 +1648,7 @@ export async function calculateMaxCapacityCPSAT(
     // MAX capacity can be an expensive solve on long horizons/asymmetric shifts.
     // Keep the same long timeout as optimization runs and reduce worker count
     // to limit memory pressure on long runs.
-    timeLimitSeconds: 600,
+    timeLimitSeconds: 3600,
     numSearchWorkers: 1,
     includeWeekend: hasExplicitAvailability ? true : (input.includeWeekend ?? false),
   });
