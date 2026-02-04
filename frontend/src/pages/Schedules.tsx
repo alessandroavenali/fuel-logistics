@@ -244,6 +244,11 @@ export default function Schedules() {
     return getWorkingDaysBetween(start, end, includeWeekend);
   }, [watchedStartDate, watchedEndDate, includeWeekend]);
 
+  // Invalidate max capacity result when dates change
+  useEffect(() => {
+    setMaxCapacityResult(null);
+  }, [watchedStartDate, watchedEndDate]);
+
   // Group working days by week for display
   const workingDaysByWeek = useMemo(() => groupDaysByWeek(workingDays), [workingDays]);
 
