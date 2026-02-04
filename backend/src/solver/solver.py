@@ -474,18 +474,19 @@ def solve(
     model.maximize(total_deliveries * big_m - total_start_slots)
 
     class ProgressCallback(cp_model.CpSolverSolutionCallback):
-        def __init__(self):
+        def __init__(self, deliveries_var):
             super().__init__()
             self._solution_count = 0
+            self._deliveries_var = deliveries_var
 
         def on_solution_callback(self) -> None:
             self._solution_count += 1
             if on_solution is not None:
+                deliveries = None
                 try:
-                    obj = int(self.ObjectiveValue())
+                    deliveries = int(self.Value(self._deliveries_var))
                 except Exception:
-                    obj = None
-                # Emit best-so-far summary (deliveries, liters, elapsed, solution count).
+                    deliveries = None
                 try:
                     elapsed = float(self.WallTime())
                 except Exception:
@@ -494,8 +495,8 @@ def solve(
                     on_solution(
                         {
                             "solutions": self._solution_count,
-                            "objective_deliveries": obj,
-                            "objective_liters": (obj * liters_per_unit) if obj is not None else None,
+                            "objective_deliveries": deliveries,
+                            "objective_liters": (deliveries * liters_per_unit) if deliveries is not None else None,
                             "elapsed_seconds": elapsed,
                         }
                     )
@@ -513,7 +514,7 @@ def solve(
     solver.parameters.max_time_in_seconds = float(data.get("time_limit_seconds", 600))
     solver.parameters.num_search_workers = int(data.get("num_search_workers", 8))
 
-    progress_cb = ProgressCallback() if (on_solution is not None or should_stop is not None) else None
+    progress_cb = ProgressCallback(total_deliveries) if (on_solution is not None or should_stop is not None) else None
     status_code = solver.solve(model, progress_cb) if progress_cb else solver.solve(model)
     status = STATUS_MAP.get(status_code, "UNKNOWN")
 
