@@ -837,12 +837,17 @@ export async function convertSolverOutputToTrips(
 
       if (task === 'R') {
         driver = findAvailableDriver(
-          [...ctx.tiranoDrivers, ...ctx.livignoDrivers],
+          ctx.tiranoDrivers,
           departureTime,
           returnTime,
           driverSlots,
           fixedDriverBusy
         );
+        // Hard fallback: REFILL is a Tirano yard operation; never attach it to Livigno drivers.
+        // If no Tirano driver is currently free, use the first Tirano driver for traceability.
+        if (!driver) {
+          driver = ctx.tiranoDrivers[0] ?? null;
+        }
       }
 
       if (!driver) {
