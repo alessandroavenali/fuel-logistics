@@ -1071,7 +1071,9 @@ export async function runCPSATOptimizer(
       let livignoCount = 0;
 
       for (const avail of driverAvailability) {
-        if (avail.availableDates.includes(dateKey)) {
+        // If availableDates not specified, driver is available all days
+        const isAvailable = !avail.availableDates || avail.availableDates.length === 0 || avail.availableDates.includes(dateKey);
+        if (isAvailable) {
           const driver = drivers.find(d => d.id === avail.driverId);
           if (driver) {
             if (driver.baseLocationId === livignoLocation.id) {
@@ -1359,7 +1361,9 @@ export async function calculateMaxCapacityCPSAT(
 
     if (input.driverAvailability && input.driverAvailability.length > 0) {
       for (const avail of input.driverAvailability) {
-        if (avail.availableDates.includes(dateKey)) {
+        // If availableDates not specified, driver is available all days
+        const isAvailable = !avail.availableDates || avail.availableDates.length === 0 || avail.availableDates.includes(dateKey);
+        if (isAvailable) {
           const driver = drivers.find(d => d.id === avail.driverId);
           if (driver) {
             if (driver.baseLocationId === livignoLocation.id) {
