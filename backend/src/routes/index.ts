@@ -53,6 +53,8 @@ router.post('/routes/calculate', routesController.calculateRoute);
 
 // Schedules
 router.post('/schedules/calculate-max', schedulesController.calculateMaxCapacityHandler);
+router.post('/schedules/calculate-max/jobs', schedulesController.startCalculateMaxCapacityJobHandler);
+router.get('/schedules/calculate-max/jobs/:jobId', schedulesController.getCalculateMaxCapacityJobHandler);
 router.get('/schedules', schedulesController.getSchedules);
 router.get('/schedules/:id', schedulesController.getSchedule);
 router.post('/schedules', schedulesController.createSchedule);

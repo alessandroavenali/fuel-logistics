@@ -36,8 +36,8 @@ import {
   useSchedules,
   useCreateSchedule,
   useDeleteSchedule,
-  useCalculateMaxCapacity,
 } from '@/hooks/useSchedules';
+import { schedulesApi } from '@/api/client';
 import type { MaxCapacityResult, DriverAvailabilityInput } from '@/api/client';
 import { useTrailers } from '@/hooks/useTrailers';
 import { useVehicles } from '@/hooks/useVehicles';
@@ -176,8 +176,8 @@ export default function Schedules() {
   const { data: locations } = useLocations({ isActive: true });
   const createMutation = useCreateSchedule();
   const deleteMutation = useDeleteSchedule();
-  const calculateMaxMutation = useCalculateMaxCapacity();
   const { toast } = useToast();
+  const [isCalculatingMax, setIsCalculatingMax] = useState(false);
 
   // Get parking location (Tirano) as fallback default
   const parkingLocation = locations?.find((l: Location) => l.type === 'PARKING');
@@ -263,14 +263,14 @@ export default function Schedules() {
 
   // Elapsed timer for long-running MAX calculations
   useEffect(() => {
-    if (!calculateMaxMutation.isPending || maxCalcStartedAt === null) {
+    if (!isCalculatingMax || maxCalcStartedAt === null) {
       return;
     }
     const timer = setInterval(() => {
       setMaxCalcElapsedSeconds(Math.floor((Date.now() - maxCalcStartedAt) / 1000));
     }, 1000);
     return () => clearInterval(timer);
-  }, [calculateMaxMutation.isPending, maxCalcStartedAt]);
+  }, [isCalculatingMax, maxCalcStartedAt]);
 
   // Helper to toggle a single day for a driver
   const toggleDriverDay = (driverId: string, date: string) => {
@@ -403,14 +403,40 @@ export default function Schedules() {
       const endDateObj = new Date(formValues.endDate);
       endDateObj.setHours(23, 59, 59, 999);
 
-      const result = await calculateMaxMutation.mutateAsync({
+      setIsCalculatingMax(true);
+
+      const payload = {
         startDate: new Date(formValues.startDate).toISOString(),
         endDate: endDateObj.toISOString(),
         initialStates: initialStates.length > 0 ? initialStates : undefined,
         vehicleStates: vehicleStates.length > 0 ? vehicleStates : undefined,
         driverAvailability: driverAvailabilityApi,
         includeWeekend,
-      });
+      };
+
+      const job = await schedulesApi.startCalculateMaxJob(payload);
+
+      const maxWaitMs = 10 * 60 * 1000;
+      const pollEveryMs = 2000;
+      const pollStart = Date.now();
+      let result: MaxCapacityResult | null = null;
+
+      while (Date.now() - pollStart < maxWaitMs) {
+        const status = await schedulesApi.getCalculateMaxJob(job.jobId);
+        if (status.status === 'COMPLETED' && status.result) {
+          result = status.result;
+          break;
+        }
+        if (status.status === 'FAILED') {
+          throw new Error(status.error || 'Calcolo MAX fallito');
+        }
+        await new Promise(resolve => setTimeout(resolve, pollEveryMs));
+      }
+
+      if (!result) {
+        throw new Error('Timeout lato client: il calcolo MAX ha superato 10 minuti');
+      }
+
       setMaxCapacityResult(result);
       setIsMaxPreviewOpen(true);
     } catch (error) {
@@ -421,6 +447,7 @@ export default function Schedules() {
         variant: 'destructive',
       });
     } finally {
+      setIsCalculatingMax(false);
       setMaxCalcStartedAt(null);
       setMaxCalcElapsedSeconds(0);
     }
@@ -587,10 +614,10 @@ export default function Schedules() {
                       type="button"
                       variant="secondary"
                       onClick={handleCalculateMax}
-                      disabled={calculateMaxMutation.isPending}
+                      disabled={isCalculatingMax}
                       title="Calcola capacità massima"
                     >
-                      {calculateMaxMutation.isPending ? (
+                      {isCalculatingMax ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
                       ) : (
                         <Zap className="h-4 w-4" />
@@ -598,7 +625,7 @@ export default function Schedules() {
                       MAX
                     </Button>
                   </div>
-                  {calculateMaxMutation.isPending && (
+                  {isCalculatingMax && (
                     <div className="mt-2 rounded-md border border-primary/30 bg-primary/5 p-2">
                       <p className="text-xs font-medium text-primary">
                         Calcolo MAX in corso ({maxCalcElapsedSeconds}s)

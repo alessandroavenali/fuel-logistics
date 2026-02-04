@@ -197,6 +197,23 @@ export interface CalculateMaxInput {
   includeWeekend?: boolean;
 }
 
+export interface MaxCapacityJobCreated {
+  jobId: string;
+  status: 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED';
+  createdAt: string;
+}
+
+export interface MaxCapacityJobStatus {
+  jobId: string;
+  status: 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED';
+  elapsedMs: number;
+  createdAt: string;
+  startedAt?: string;
+  completedAt?: string;
+  result?: MaxCapacityResult;
+  error?: string;
+}
+
 export interface OptimizerSelfCheckResult {
   scheduleId: string;
   persistedTrips: number;
@@ -231,6 +248,13 @@ export const schedulesApi = {
   validate: (id: string) => request<any>(`/schedules/${id}/validate`, { method: 'POST' }),
   calculateMax: (data: CalculateMaxInput) =>
     request<MaxCapacityResult>('/schedules/calculate-max', { method: 'POST', body: JSON.stringify(data) }),
+  startCalculateMaxJob: (data: CalculateMaxInput) =>
+    request<MaxCapacityJobCreated>('/schedules/calculate-max/jobs', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  getCalculateMaxJob: (jobId: string) =>
+    request<MaxCapacityJobStatus>(`/schedules/calculate-max/jobs/${jobId}`),
   getTrips: (id: string) => request<any[]>(`/schedules/${id}/trips`),
   createTrip: (scheduleId: string, data: any) =>
     request<any>(`/schedules/${scheduleId}/trips`, { method: 'POST', body: JSON.stringify(data) }),
