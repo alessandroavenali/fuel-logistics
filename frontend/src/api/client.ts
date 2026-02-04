@@ -195,6 +195,8 @@ export interface CalculateMaxInput {
   }[];
   driverAvailability?: DriverAvailabilityInput[];
   includeWeekend?: boolean;
+  timeLimitSeconds?: number;
+  numSearchWorkers?: number;
 }
 
 export interface MaxCapacityJobCreated {
@@ -212,6 +214,32 @@ export interface MaxCapacityJobStatus {
   completedAt?: string;
   result?: MaxCapacityResult;
   error?: string;
+  progress?: {
+    seq?: number;
+    solutions?: number;
+    objective_deliveries?: number;
+    objective_liters?: number;
+    elapsed_seconds?: number;
+  };
+}
+
+export interface OptimizeJobStatus {
+  jobId: string;
+  scheduleId: string;
+  status: 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED';
+  elapsedMs: number;
+  createdAt: string;
+  startedAt?: string;
+  completedAt?: string;
+  result?: any;
+  error?: string;
+  progress?: {
+    seq?: number;
+    solutions?: number;
+    objective_deliveries?: number;
+    objective_liters?: number;
+    elapsed_seconds?: number;
+  };
 }
 
 export interface OptimizerSelfCheckResult {
@@ -255,6 +283,17 @@ export const schedulesApi = {
     }),
   getCalculateMaxJob: (jobId: string) =>
     request<MaxCapacityJobStatus>(`/schedules/calculate-max/jobs/${jobId}`),
+  stopCalculateMaxJob: (jobId: string) =>
+    request<any>(`/schedules/calculate-max/jobs/${jobId}/stop`, { method: 'POST' }),
+  startOptimizeJob: (scheduleId: string, data: { driverAvailability?: DriverAvailabilityInput[]; timeLimitSeconds?: number }) =>
+    request<any>(`/schedules/${scheduleId}/optimize/jobs`, {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }),
+  getOptimizeJob: (scheduleId: string, jobId: string) =>
+    request<OptimizeJobStatus>(`/schedules/${scheduleId}/optimize/jobs/${jobId}`),
+  stopOptimizeJob: (scheduleId: string, jobId: string) =>
+    request<any>(`/schedules/${scheduleId}/optimize/jobs/${jobId}/stop`, { method: 'POST' }),
   getTrips: (id: string) => request<any[]>(`/schedules/${id}/trips`),
   createTrip: (scheduleId: string, data: any) =>
     request<any>(`/schedules/${scheduleId}/trips`, { method: 'POST', body: JSON.stringify(data) }),

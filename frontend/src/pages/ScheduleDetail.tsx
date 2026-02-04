@@ -24,7 +24,6 @@ import {
 } from '@/components/ui/dialog';
 import {
   useSchedule,
-  useOptimizeSchedule,
   useOptimizerSelfCheck,
   useConfirmSchedule,
   useValidateSchedule,
@@ -32,6 +31,7 @@ import {
   useUpdateTrip,
   useDeleteTrip,
 } from '@/hooks/useSchedules';
+import { schedulesApi } from '@/api/client';
 import { useDrivers, useDriversAvailability } from '@/hooks/useDrivers';
 import { useVehiclesStatus } from '@/hooks/useVehicles';
 import { useTrailersStatus } from '@/hooks/useTrailers';
@@ -118,6 +118,16 @@ export default function ScheduleDetail() {
   const [selfCheckResult, setSelfCheckResult] = useState<OptimizerSelfCheckResult | null>(null);
   const [showAdrDialog, setShowAdrDialog] = useState(false);
   const [adrExceptions, setAdrExceptions] = useState<Record<string, number>>({});
+  const [isOptimizing, setIsOptimizing] = useState(false);
+  const [optimizeJobId, setOptimizeJobId] = useState<string | null>(null);
+  const [optimizeProgress, setOptimizeProgress] = useState<{
+    solutions?: number;
+    objective_liters?: number;
+    objective_deliveries?: number;
+    elapsed_seconds?: number;
+  } | null>(null);
+  const [optimizeMode, setOptimizeMode] = useState<'quick' | 'optimal'>('optimal');
+  const [optimizeStopRequested, setOptimizeStopRequested] = useState(false);
 
   const { data: schedule, isLoading } = useSchedule(id!);
   const { data: drivers } = useDrivers({ isActive: true });
@@ -593,7 +603,6 @@ export default function ScheduleDetail() {
     };
   }, [routeMap, sourceLocation, parkingLocation, destinationLocation]);
 
-  const optimizeMutation = useOptimizeSchedule();
   const selfCheckMutation = useOptimizerSelfCheck();
   const confirmMutation = useConfirmSchedule();
   const validateMutation = useValidateSchedule();
@@ -631,6 +640,10 @@ export default function ScheduleDetail() {
   const handleOptimizeWithAdr = async () => {
     setShowAdrDialog(false);
     try {
+      setIsOptimizing(true);
+      setOptimizeProgress(null);
+      setOptimizeStopRequested(false);
+
       // Costruisci driverAvailability con eccezioni iniziali
       const driverAvailability = Object.entries(adrExceptions)
         .filter(([_, count]) => count > 0)
@@ -640,10 +653,35 @@ export default function ScheduleDetail() {
           initialAdrExceptions: count,
         }));
 
-      const result = await optimizeMutation.mutateAsync({
-        id: id!,
-        driverAvailability: driverAvailability.length > 0 ? driverAvailability : undefined
+      const job = await schedulesApi.startOptimizeJob(id!, {
+        driverAvailability: driverAvailability.length > 0 ? driverAvailability : undefined,
+        timeLimitSeconds: optimizeMode === 'quick' ? 60 : 3600,
       });
+      setOptimizeJobId(job.jobId);
+
+      const pollEveryMs = 2000;
+      const maxWaitMs = 60 * 60 * 1000;
+      const pollStart = Date.now();
+      let result: any | null = null;
+
+      while (Date.now() - pollStart < maxWaitMs) {
+        const status = await schedulesApi.getOptimizeJob(id!, job.jobId);
+        if (status.progress) {
+          setOptimizeProgress(status.progress);
+        }
+        if (status.status === 'COMPLETED' && status.result) {
+          result = status.result;
+          break;
+        }
+        if (status.status === 'FAILED') {
+          throw new Error(status.error || 'Ottimizzazione fallita');
+        }
+        await new Promise(resolve => setTimeout(resolve, pollEveryMs));
+      }
+
+      if (!result) {
+        throw new Error('Timeout lato client: ottimizzazione oltre 60 minuti');
+      }
       setOptimizerWarnings(result.warnings || []);
       if (result.success) {
         toast({
@@ -687,6 +725,21 @@ export default function ScheduleDetail() {
         description: error.message || 'Ottimizzazione fallita',
         variant: 'destructive',
       });
+    } finally {
+      setIsOptimizing(false);
+      setOptimizeJobId(null);
+      setOptimizeProgress(null);
+      setOptimizeStopRequested(false);
+    }
+  };
+
+  const handleStopOptimize = async () => {
+    if (!optimizeJobId || !id) return;
+    setOptimizeStopRequested(true);
+    try {
+      await schedulesApi.stopOptimizeJob(id, optimizeJobId);
+    } catch {
+      // ignore; polling will handle final status
     }
   };
 
@@ -886,7 +939,7 @@ export default function ScheduleDetail() {
 
         {schedule.status === 'DRAFT' && (
           <div className="flex gap-2">
-            <Button variant="outline" onClick={handleOptimize} disabled={optimizeMutation.isPending}>
+            <Button variant="outline" onClick={handleOptimize} disabled={isOptimizing}>
               <Wand2 className="mr-2 h-4 w-4" />
               Genera Turni
             </Button>
@@ -918,6 +971,42 @@ export default function ScheduleDetail() {
           </div>
         )}
       </div>
+
+      {isOptimizing && (
+        <div className="rounded-md border border-primary/30 bg-primary/5 p-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-primary">Ottimizzazione in corso</p>
+              <p className="text-xs text-muted-foreground">
+                Può richiedere tempo su orizzonti lunghi (timeout server: 60 min).
+              </p>
+              {optimizeProgress && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Best finora: <span className="font-medium text-foreground">
+                    {(optimizeProgress.objective_liters ?? 0).toLocaleString()}L
+                  </span>
+                  {typeof optimizeProgress.solutions === 'number' && (
+                    <span className="ml-2">soluzioni: {optimizeProgress.solutions}</span>
+                  )}
+                </p>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleStopOptimize}
+                disabled={optimizeStopRequested}
+              >
+                {optimizeStopRequested ? 'Stop inviato' : 'Ferma qui'}
+              </Button>
+            </div>
+          </div>
+          <div className="mt-2 h-1.5 w-full overflow-hidden rounded bg-muted">
+            <div className="h-full w-1/3 animate-pulse rounded bg-primary/70" />
+          </div>
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid gap-4 md:grid-cols-4">
@@ -1721,6 +1810,25 @@ export default function ScheduleDetail() {
                 </div>
               </div>
             ))}
+          </div>
+          <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
+            <span>Modalità calcolo:</span>
+            <div className="inline-flex rounded-md border bg-background p-0.5">
+              <button
+                type="button"
+                className={`px-2 py-0.5 text-[11px] rounded ${optimizeMode === 'quick' ? 'bg-primary text-primary-foreground' : 'hover:bg-accent'}`}
+                onClick={() => setOptimizeMode('quick')}
+              >
+                Stima veloce (60s)
+              </button>
+              <button
+                type="button"
+                className={`px-2 py-0.5 text-[11px] rounded ${optimizeMode === 'optimal' ? 'bg-primary text-primary-foreground' : 'hover:bg-accent'}`}
+                onClick={() => setOptimizeMode('optimal')}
+              >
+                Ottimizza (60m)
+              </button>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowAdrDialog(false)}>

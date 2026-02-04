@@ -54,6 +54,8 @@ export interface SolverInput {
   time_limit_seconds?: number;        // 60
   num_search_workers?: number;        // 8
   include_weekend?: boolean;          // true
+  progress_path?: string;             // optional progress log file
+  stop_path?: string;                 // optional stop flag file
 }
 
 export interface DayResult {
@@ -159,6 +161,8 @@ export function createSolverInput(params: {
   timeLimitSeconds?: number;
   numSearchWorkers?: number;
   includeWeekend?: boolean;
+  progressPath?: string;
+  stopPath?: string;
 }): SolverInput {
   const {
     startDate,
@@ -192,6 +196,8 @@ export function createSolverInput(params: {
     time_limit_seconds: timeLimitSeconds,
     num_search_workers: numSearchWorkers,
     include_weekend: includeWeekend,
+    progress_path: params.progressPath,
+    stop_path: params.stopPath,
   };
 }
 
@@ -1103,7 +1109,13 @@ export async function runCPSATOptimizer(
   prisma: PrismaClient,
   scheduleId: string,
   driverAvailability?: DriverAvailabilityInput[],
-  options: { persist?: boolean } = {}
+  options: {
+    persist?: boolean;
+    timeLimitSeconds?: number;
+    numSearchWorkers?: number;
+    progressPath?: string;
+    stopPath?: string;
+  } = {}
 ): Promise<OptimizationResult> {
   const persist = options.persist ?? true;
   const warnings: string[] = [];
@@ -1244,12 +1256,14 @@ export async function runCPSATOptimizer(
     initialFullTrailers,
     initialFullTractors,
     // Complex scenarios (e.g., 30-day horizon, asymmetric availability) need longer solve time.
-    timeLimitSeconds: 3600,
+    timeLimitSeconds: options.timeLimitSeconds ?? 3600,
     // Keep solver output deterministic across runs to avoid conversion drift.
     // Parallel search can produce alternate optimal plans that are harder to map
     // to concrete resource identities with the current converter.
-    numSearchWorkers: 1,
+    numSearchWorkers: options.numSearchWorkers ?? 1,
     includeWeekend: hasExplicitAvailability ? true : schedule.includeWeekend,
+    progressPath: options.progressPath,
+    stopPath: options.stopPath,
   });
 
   // Run solver
@@ -1512,6 +1526,10 @@ export interface CalculateMaxInput {
   }[];
   driverAvailability?: DriverAvailabilityInput[];
   includeWeekend?: boolean;
+  timeLimitSeconds?: number;
+  numSearchWorkers?: number;
+  progressPath?: string;
+  stopPath?: string;
 }
 
 /**
@@ -1648,9 +1666,11 @@ export async function calculateMaxCapacityCPSAT(
     // MAX capacity can be an expensive solve on long horizons/asymmetric shifts.
     // Keep the same long timeout as optimization runs and reduce worker count
     // to limit memory pressure on long runs.
-    timeLimitSeconds: 3600,
-    numSearchWorkers: 1,
+    timeLimitSeconds: input.timeLimitSeconds ?? 3600,
+    numSearchWorkers: input.numSearchWorkers ?? 1,
     includeWeekend: hasExplicitAvailability ? true : (input.includeWeekend ?? false),
+    progressPath: input.progressPath,
+    stopPath: input.stopPath,
   });
 
   let solverResult: SolverOutput;

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date as _date
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 
 from ortools.sat.python import cp_model
 
@@ -30,7 +30,11 @@ def _iso_year_week(date_str: str) -> Tuple[int, int, int]:
     return int(iso[0]), int(iso[1]), int(iso[2])
 
 
-def solve(data: Dict) -> SolveResult:
+def solve(
+    data: Dict,
+    on_solution: Optional[callable] = None,
+    should_stop: Optional[callable] = None,
+) -> SolveResult:
     days = data["days"]
     n = len(days)
     liters_per_unit = int(data.get("liters_per_unit", 17500))
@@ -469,11 +473,48 @@ def solve(data: Dict) -> SolveResult:
     big_m = 100_000
     model.maximize(total_deliveries * big_m - total_start_slots)
 
+    class ProgressCallback(cp_model.CpSolverSolutionCallback):
+        def __init__(self):
+            super().__init__()
+            self._solution_count = 0
+
+        def on_solution_callback(self) -> None:
+            self._solution_count += 1
+            if on_solution is not None:
+                try:
+                    obj = int(self.ObjectiveValue())
+                except Exception:
+                    obj = None
+                # Emit best-so-far summary (deliveries, liters, elapsed, solution count).
+                try:
+                    elapsed = float(self.WallTime())
+                except Exception:
+                    elapsed = None
+                try:
+                    on_solution(
+                        {
+                            "solutions": self._solution_count,
+                            "objective_deliveries": obj,
+                            "objective_liters": (obj * liters_per_unit) if obj is not None else None,
+                            "elapsed_seconds": elapsed,
+                        }
+                    )
+                except Exception:
+                    pass
+
+            if should_stop is not None:
+                try:
+                    if bool(should_stop()):
+                        self.StopSearch()
+                except Exception:
+                    pass
+
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = float(data.get("time_limit_seconds", 600))
     solver.parameters.num_search_workers = int(data.get("num_search_workers", 8))
 
-    status_code = solver.solve(model)
+    progress_cb = ProgressCallback() if (on_solution is not None or should_stop is not None) else None
+    status_code = solver.solve(model, progress_cb) if progress_cb else solver.solve(model)
     status = STATUS_MAP.get(status_code, "UNKNOWN")
 
     days_out: List[Dict] = []

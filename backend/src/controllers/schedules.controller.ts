@@ -1,6 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'crypto';
+import fs from 'fs';
+import path from 'path';
 import { createScheduleSchema, updateScheduleSchema, createTripSchema, updateTripSchema } from '../utils/validators.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { optimizeSchedule, calculateMaxCapacity } from '../services/optimizer.service.js';
@@ -17,9 +19,24 @@ interface MaxCalcJob {
   completedAt?: number;
   result?: any;
   error?: string;
+  progressPath?: string;
+  stopPath?: string;
 }
 
+interface OptimizeJob extends MaxCalcJob {
+  scheduleId: string;
+}
+
+type JobProgress = {
+  seq?: number;
+  solutions?: number;
+  objective_deliveries?: number;
+  objective_liters?: number;
+  elapsed_seconds?: number;
+};
+
 const maxCalcJobs = new Map<string, MaxCalcJob>();
+const optimizeJobs = new Map<string, OptimizeJob>();
 const MAX_JOB_RETENTION_MS = 60 * 60 * 1000; // 1h
 
 export async function getSchedules(req: Request, res: Response, next: NextFunction) {
@@ -290,15 +307,55 @@ function cleanupMaxCalcJobs(now: number = Date.now()) {
   for (const [jobId, job] of maxCalcJobs.entries()) {
     const finishedAt = job.completedAt ?? job.createdAt;
     if (now - finishedAt > MAX_JOB_RETENTION_MS) {
+      if (job.progressPath) {
+        fs.promises.unlink(job.progressPath).catch(() => undefined);
+      }
+      if (job.stopPath) {
+        fs.promises.unlink(job.stopPath).catch(() => undefined);
+      }
       maxCalcJobs.delete(jobId);
     }
+  }
+  for (const [jobId, job] of optimizeJobs.entries()) {
+    const finishedAt = job.completedAt ?? job.createdAt;
+    if (now - finishedAt > MAX_JOB_RETENTION_MS) {
+      if (job.progressPath) {
+        fs.promises.unlink(job.progressPath).catch(() => undefined);
+      }
+      if (job.stopPath) {
+        fs.promises.unlink(job.stopPath).catch(() => undefined);
+      }
+      optimizeJobs.delete(jobId);
+    }
+  }
+}
+
+async function readJobProgress(progressPath?: string): Promise<JobProgress | null> {
+  if (!progressPath) return null;
+  try {
+    const content = await fs.promises.readFile(progressPath, 'utf-8');
+    const lines = content.trim().split('\n');
+    if (lines.length === 0) return null;
+    const lastLine = lines[lines.length - 1];
+    return JSON.parse(lastLine) as JobProgress;
+  } catch {
+    return null;
   }
 }
 
 export async function startCalculateMaxCapacityJobHandler(req: Request, res: Response, next: NextFunction) {
   try {
     const prisma: PrismaClient = (req as any).prisma;
-    const { startDate, endDate, initialStates, vehicleStates, driverAvailability, includeWeekend } = req.body;
+    const {
+      startDate,
+      endDate,
+      initialStates,
+      vehicleStates,
+      driverAvailability,
+      includeWeekend,
+      timeLimitSeconds,
+      numSearchWorkers,
+    } = req.body;
     const optimizer = (req.query.optimizer as string) || 'cpsat';
 
     if (!startDate || !endDate) {
@@ -308,10 +365,14 @@ export async function startCalculateMaxCapacityJobHandler(req: Request, res: Res
     cleanupMaxCalcJobs();
 
     const jobId = randomUUID();
+    const progressPath = path.join('/tmp', `fuel-max-progress-${jobId}.jsonl`);
+    const stopPath = path.join('/tmp', `fuel-max-stop-${jobId}.flag`);
     const job: MaxCalcJob = {
       id: jobId,
       status: 'PENDING',
       createdAt: Date.now(),
+      progressPath,
+      stopPath,
     };
     maxCalcJobs.set(jobId, job);
 
@@ -322,6 +383,10 @@ export async function startCalculateMaxCapacityJobHandler(req: Request, res: Res
       vehicleStates,
       driverAvailability,
       includeWeekend,
+      timeLimitSeconds,
+      numSearchWorkers,
+      progressPath,
+      stopPath,
     };
 
     void (async () => {
@@ -366,6 +431,8 @@ export async function getCalculateMaxCapacityJobHandler(req: Request, res: Respo
     const now = Date.now();
     const elapsedMs = (job.startedAt ? now - job.startedAt : now - job.createdAt);
 
+    const progress = await readJobProgress(job.progressPath);
+
     res.json({
       jobId: job.id,
       status: job.status,
@@ -375,7 +442,137 @@ export async function getCalculateMaxCapacityJobHandler(req: Request, res: Respo
       completedAt: job.completedAt ? new Date(job.completedAt).toISOString() : undefined,
       result: job.status === 'COMPLETED' ? job.result : undefined,
       error: job.status === 'FAILED' ? job.error : undefined,
+      progress: progress ?? undefined,
     });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function stopCalculateMaxCapacityJobHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    cleanupMaxCalcJobs();
+
+    const { jobId } = req.params;
+    const job = maxCalcJobs.get(jobId);
+    if (!job) {
+      throw new AppError(404, 'Max-capacity job not found');
+    }
+
+    if (job.stopPath) {
+      await fs.promises.writeFile(job.stopPath, 'stop');
+    }
+
+    res.status(202).json({ jobId, status: job.status });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function startOptimizeScheduleJobHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    const prisma: PrismaClient = (req as any).prisma;
+    const { id } = req.params;
+    const { driverAvailability, timeLimitSeconds, numSearchWorkers } = req.body || {};
+    const optimizer = (req.query.optimizer as string) || 'cpsat';
+
+    cleanupMaxCalcJobs();
+
+    const jobId = randomUUID();
+    const progressPath = path.join('/tmp', `fuel-opt-progress-${jobId}.jsonl`);
+    const stopPath = path.join('/tmp', `fuel-opt-stop-${jobId}.flag`);
+
+    const job: OptimizeJob = {
+      id: jobId,
+      scheduleId: id,
+      status: 'PENDING',
+      createdAt: Date.now(),
+      progressPath,
+      stopPath,
+    };
+    optimizeJobs.set(jobId, job);
+
+    void (async () => {
+      const existing = optimizeJobs.get(jobId);
+      if (!existing) return;
+      existing.status = 'RUNNING';
+      existing.startedAt = Date.now();
+      try {
+        const result = optimizer === 'legacy'
+          ? await optimizeSchedule(prisma, id, driverAvailability)
+          : await runCPSATOptimizer(prisma, id, driverAvailability, {
+              persist: true,
+              timeLimitSeconds,
+              numSearchWorkers,
+              progressPath,
+              stopPath,
+            });
+        existing.status = 'COMPLETED';
+        existing.result = result;
+        existing.completedAt = Date.now();
+      } catch (error) {
+        existing.status = 'FAILED';
+        existing.error = error instanceof Error ? error.message : String(error);
+        existing.completedAt = Date.now();
+      }
+    })();
+
+    res.status(202).json({
+      jobId,
+      status: job.status,
+      createdAt: new Date(job.createdAt).toISOString(),
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getOptimizeScheduleJobHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    cleanupMaxCalcJobs();
+
+    const { jobId } = req.params;
+    const job = optimizeJobs.get(jobId);
+    if (!job) {
+      throw new AppError(404, 'Optimize job not found');
+    }
+
+    const now = Date.now();
+    const elapsedMs = (job.startedAt ? now - job.startedAt : now - job.createdAt);
+    const progress = await readJobProgress(job.progressPath);
+
+    res.json({
+      jobId: job.id,
+      scheduleId: job.scheduleId,
+      status: job.status,
+      elapsedMs,
+      createdAt: new Date(job.createdAt).toISOString(),
+      startedAt: job.startedAt ? new Date(job.startedAt).toISOString() : undefined,
+      completedAt: job.completedAt ? new Date(job.completedAt).toISOString() : undefined,
+      result: job.status === 'COMPLETED' ? job.result : undefined,
+      error: job.status === 'FAILED' ? job.error : undefined,
+      progress: progress ?? undefined,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function stopOptimizeScheduleJobHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    cleanupMaxCalcJobs();
+
+    const { jobId } = req.params;
+    const job = optimizeJobs.get(jobId);
+    if (!job) {
+      throw new AppError(404, 'Optimize job not found');
+    }
+
+    if (job.stopPath) {
+      await fs.promises.writeFile(job.stopPath, 'stop');
+    }
+
+    res.status(202).json({ jobId, status: job.status });
   } catch (error) {
     next(error);
   }

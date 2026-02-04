@@ -12,6 +12,8 @@ import json
 import sys
 from datetime import date, datetime, timedelta
 from typing import Dict, List
+import os
+import threading
 
 from solver import solve
 from turns import build_turns_for_day
@@ -69,7 +71,33 @@ def main() -> int:
     )
     data["days"] = days
 
-    result = solve(data)
+    progress_path = data.get("progress_path")
+    stop_path = data.get("stop_path")
+    progress_seq = 0
+    progress_lock = threading.Lock()
+
+    def _append_progress(payload: Dict) -> None:
+        nonlocal progress_seq
+        if not progress_path:
+            return
+        with progress_lock:
+            progress_seq += 1
+            record = {
+                "seq": progress_seq,
+                **payload,
+            }
+            try:
+                with open(progress_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps(record, ensure_ascii=False) + "\n")
+            except Exception:
+                pass
+
+    def _should_stop() -> bool:
+        if not stop_path:
+            return False
+        return os.path.exists(stop_path)
+
+    result = solve(data, on_solution=_append_progress, should_stop=_should_stop)
 
     output_days = []
     for day in result.days:

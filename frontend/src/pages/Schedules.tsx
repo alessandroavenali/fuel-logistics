@@ -178,6 +178,15 @@ export default function Schedules() {
   const deleteMutation = useDeleteSchedule();
   const { toast } = useToast();
   const [isCalculatingMax, setIsCalculatingMax] = useState(false);
+  const [maxCalcJobId, setMaxCalcJobId] = useState<string | null>(null);
+  const [maxCalcProgress, setMaxCalcProgress] = useState<{
+    solutions?: number;
+    objective_liters?: number;
+    objective_deliveries?: number;
+    elapsed_seconds?: number;
+  } | null>(null);
+  const [maxMode, setMaxMode] = useState<'quick' | 'optimal'>('optimal');
+  const [stopRequested, setStopRequested] = useState(false);
 
   // Get parking location (Tirano) as fallback default
   const parkingLocation = locations?.find((l: Location) => l.type === 'PARKING');
@@ -398,6 +407,8 @@ export default function Schedules() {
     try {
       setMaxCalcStartedAt(Date.now());
       setMaxCalcElapsedSeconds(0);
+      setMaxCalcProgress(null);
+      setStopRequested(false);
 
       // endDate deve essere a fine giornata (23:59:59) per includere l'ultimo giorno
       const endDateObj = new Date(formValues.endDate);
@@ -412,9 +423,11 @@ export default function Schedules() {
         vehicleStates: vehicleStates.length > 0 ? vehicleStates : undefined,
         driverAvailability: driverAvailabilityApi,
         includeWeekend,
+        timeLimitSeconds: maxMode === 'quick' ? 60 : 3600,
       };
 
       const job = await schedulesApi.startCalculateMaxJob(payload);
+      setMaxCalcJobId(job.jobId);
 
       const maxWaitMs = 60 * 60 * 1000;
       const pollEveryMs = 2000;
@@ -423,6 +436,9 @@ export default function Schedules() {
 
       while (Date.now() - pollStart < maxWaitMs) {
         const status = await schedulesApi.getCalculateMaxJob(job.jobId);
+        if (status.progress) {
+          setMaxCalcProgress(status.progress);
+        }
         if (status.status === 'COMPLETED' && status.result) {
           result = status.result;
           break;
@@ -434,7 +450,7 @@ export default function Schedules() {
       }
 
       if (!result) {
-        throw new Error('Timeout lato client: il calcolo MAX ha superato 10 minuti');
+        throw new Error('Timeout lato client: il calcolo MAX ha superato 60 minuti');
       }
 
       setMaxCapacityResult(result);
@@ -450,6 +466,19 @@ export default function Schedules() {
       setIsCalculatingMax(false);
       setMaxCalcStartedAt(null);
       setMaxCalcElapsedSeconds(0);
+      setMaxCalcJobId(null);
+      setMaxCalcProgress(null);
+      setStopRequested(false);
+    }
+  };
+
+  const handleStopMax = async () => {
+    if (!maxCalcJobId) return;
+    setStopRequested(true);
+    try {
+      await schedulesApi.stopCalculateMaxJob(maxCalcJobId);
+    } catch {
+      // ignore; polling will surface status
     }
   };
 
@@ -601,6 +630,25 @@ export default function Schedules() {
 
                 <div>
                   <Label htmlFor="requiredLiters">Litri Richiesti</Label>
+                  <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+                    <span>Modalità calcolo:</span>
+                    <div className="inline-flex rounded-md border bg-background p-0.5">
+                      <button
+                        type="button"
+                        className={`px-2 py-0.5 text-[11px] rounded ${maxMode === 'quick' ? 'bg-primary text-primary-foreground' : 'hover:bg-accent'}`}
+                        onClick={() => setMaxMode('quick')}
+                      >
+                        Stima veloce (60s)
+                      </button>
+                      <button
+                        type="button"
+                        className={`px-2 py-0.5 text-[11px] rounded ${maxMode === 'optimal' ? 'bg-primary text-primary-foreground' : 'hover:bg-accent'}`}
+                        onClick={() => setMaxMode('optimal')}
+                      >
+                        Ottimizza (60m)
+                      </button>
+                    </div>
+                  </div>
                   <div className="flex gap-2">
                     <Input
                       id="requiredLiters"
@@ -633,8 +681,33 @@ export default function Schedules() {
                       <p className="text-[11px] text-muted-foreground">
                         Scenario complesso: può richiedere anche molti minuti (timeout server: 60 min).
                       </p>
+                      {maxCalcProgress && (
+                        <div className="mt-1 text-[11px] text-muted-foreground">
+                          Best finora: <span className="font-medium text-foreground">
+                            {(maxCalcProgress.objective_liters ?? 0).toLocaleString()}L
+                          </span>
+                          {typeof maxCalcProgress.solutions === 'number' && (
+                            <span className="ml-2">soluzioni: {maxCalcProgress.solutions}</span>
+                          )}
+                        </div>
+                      )}
                       <div className="mt-2 h-1.5 w-full overflow-hidden rounded bg-muted">
                         <div className="h-full w-1/3 animate-pulse rounded bg-primary/70" />
+                      </div>
+                      <div className="mt-2 flex items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={handleStopMax}
+                          disabled={stopRequested}
+                          className="h-7 text-[11px]"
+                        >
+                          {stopRequested ? 'Stop inviato' : 'Ferma qui'}
+                        </Button>
+                        {stopRequested && (
+                          <span className="text-[11px] text-muted-foreground">Attendo l’ultima soluzione.</span>
+                        )}
                       </div>
                     </div>
                   )}
