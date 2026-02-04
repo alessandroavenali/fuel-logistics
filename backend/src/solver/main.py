@@ -21,7 +21,7 @@ def _parse_date(value: str) -> date:
     return datetime.strptime(value, "%Y-%m-%d").date()
 
 
-def build_days(start_date: str, end_date: str, d_t, d_l) -> List[Dict]:
+def build_days(start_date: str, end_date: str, d_t, d_l, include_weekend: bool = True) -> List[Dict]:
     start = _parse_date(start_date)
     end = _parse_date(end_date)
     if end < start:
@@ -32,6 +32,10 @@ def build_days(start_date: str, end_date: str, d_t, d_l) -> List[Dict]:
     idx = 0
     while cur <= end:
         day_str = cur.isoformat()
+        weekday = cur.weekday()  # Monday=0 ... Sunday=6
+        if (not include_weekend) and weekday >= 5:
+            cur += timedelta(days=1)
+            continue
         if isinstance(d_t, dict):
             d_t_val = int(d_t.get(day_str, 0))
         else:
@@ -55,7 +59,14 @@ def main() -> int:
     else:
         data = json.load(sys.stdin)
 
-    days = build_days(data["start_date"], data["end_date"], data["D_T"], data["D_L"])
+    include_weekend = bool(data.get("include_weekend", True))
+    days = build_days(
+        data["start_date"],
+        data["end_date"],
+        data["D_T"],
+        data["D_L"],
+        include_weekend=include_weekend,
+    )
     data["days"] = days
 
     result = solve(data)

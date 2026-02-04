@@ -53,6 +53,7 @@ export interface SolverInput {
   livigno_entry_end_minutes?: number;    // 750 (18:30)
   time_limit_seconds?: number;        // 60
   num_search_workers?: number;        // 8
+  include_weekend?: boolean;          // true
 }
 
 export interface DayResult {
@@ -157,6 +158,7 @@ export function createSolverInput(params: {
   initialFullTractors?: number;
   timeLimitSeconds?: number;
   numSearchWorkers?: number;
+  includeWeekend?: boolean;
 }): SolverInput {
   const {
     startDate,
@@ -169,6 +171,7 @@ export function createSolverInput(params: {
     initialFullTractors = 0,
     timeLimitSeconds = 60,
     numSearchWorkers = 8,
+    includeWeekend = true,
   } = params;
 
   return {
@@ -188,6 +191,7 @@ export function createSolverInput(params: {
     drivers_L_base: Math.max(...livignoDriversPerDay, 1),
     time_limit_seconds: timeLimitSeconds,
     num_search_workers: numSearchWorkers,
+    include_weekend: includeWeekend,
   };
 }
 
@@ -1220,6 +1224,7 @@ export async function runCPSATOptimizer(
     // Parallel search can produce alternate optimal plans that are harder to map
     // to concrete resource identities with the current converter.
     numSearchWorkers: 1,
+    includeWeekend: schedule.includeWeekend,
   });
 
   // Run solver
@@ -1563,6 +1568,7 @@ export async function calculateMaxCapacityCPSAT(
     initialFullTrailers,
     initialFullTractors,
     timeLimitSeconds: 60,
+    includeWeekend: input.includeWeekend ?? false,
   });
 
   let solverResult: SolverOutput;
