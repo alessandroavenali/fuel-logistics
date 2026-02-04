@@ -407,6 +407,9 @@ interface ConversionContext {
   tiranoDrivers: Driver[];
   tiranoYardDrivers: Driver[];
   livignoDrivers: Driver[];
+  tiranoDriversByDate?: Map<string, Driver[]>;
+  tiranoYardDriversByDate?: Map<string, Driver[]>;
+  livignoDriversByDate?: Map<string, Driver[]>;
   tiranoVehicles: Vehicle[];
   livignoVehicles: Vehicle[];
   trailers: Trailer[];
@@ -570,7 +573,9 @@ export async function convertSolverOutputToTrips(
   // Process each day
   for (const dayResult of result.days) {
     const dateStr = dayResult.date;
-    const dayStart = slotToDate(0, dateStr);
+    const dayTiranoDrivers = ctx.tiranoDriversByDate?.get(dateStr) ?? ctx.tiranoDrivers;
+    const dayTiranoYardDrivers = ctx.tiranoYardDriversByDate?.get(dateStr) ?? ctx.tiranoYardDrivers;
+    const dayLivignoDrivers = ctx.livignoDriversByDate?.get(dateStr) ?? ctx.livignoDrivers;
 
     // SYNC tracker state with solver state at day start
     // The solver tells us exactly how many resources are available
@@ -669,7 +674,7 @@ export async function convertSolverOutputToTrips(
       if (assignment.task === 'R') continue;
       const taskDuration = TASK_DURATIONS[assignment.task as keyof typeof TASK_DURATIONS];
       if (!taskDuration) continue;
-      const driverPool = assignment.driverBase === 'tirano' ? ctx.tiranoDrivers : ctx.livignoDrivers;
+      const driverPool = assignment.driverBase === 'tirano' ? dayTiranoDrivers : dayLivignoDrivers;
       if (assignment.driverIndex >= driverPool.length) continue;
       const fixedDriver = driverPool[assignment.driverIndex];
       const fixedStart = slotToDate(assignment.slot, dateStr);
@@ -695,7 +700,7 @@ export async function convertSolverOutputToTrips(
       // For timeline readability, pick any currently available driver.
       let driver: Driver | null = null;
       if (task !== 'R') {
-        const driverPool = driverBase === 'tirano' ? ctx.tiranoDrivers : ctx.livignoDrivers;
+        const driverPool = driverBase === 'tirano' ? dayTiranoDrivers : dayLivignoDrivers;
         if (driverIndex >= driverPool.length) {
           console.warn(`Driver index ${driverIndex} out of range for ${driverBase} pool`);
           continue;
@@ -842,7 +847,7 @@ export async function convertSolverOutputToTrips(
 
       if (task === 'R') {
         driver = findAvailableDriver(
-          ctx.tiranoYardDrivers,
+          dayTiranoYardDrivers,
           departureTime,
           returnTime,
           driverSlots,
@@ -1162,39 +1167,40 @@ export async function runCPSATOptimizer(
   // IMPORTANT: The driver list used for conversion MUST match what the solver receives
   let tiranoDriversForConversion: Driver[];
   let livignoDriversForConversion: Driver[];
+  let tiranoDriversByDate: Map<string, Driver[]> | undefined;
+  let livignoDriversByDate: Map<string, Driver[]> | undefined;
 
   // Build driver counts per day
   const tiranoDriversPerDay: number[] = [];
   const livignoDriversPerDay: number[] = [];
 
   if (hasExplicitAvailability) {
+    const availabilityMap = new Map<string, Set<string>>();
+    for (const avail of driverAvailability) {
+      availabilityMap.set(avail.driverId, new Set(avail.availableDates || []));
+    }
+    const isDriverAvailableOn = (driverId: string, dateKey: string): boolean => {
+      const allowedDates = availabilityMap.get(driverId);
+      if (!allowedDates) return false;
+      return allowedDates.size === 0 || allowedDates.has(dateKey);
+    };
+
     // Use explicit availability - filter drivers to only those with availability
     const availableDriverIds = new Set(driverAvailability.map(a => a.driverId));
     tiranoDriversForConversion = allTiranoDrivers.filter(d => availableDriverIds.has(d.id));
     livignoDriversForConversion = allLivignoDrivers.filter(d => availableDriverIds.has(d.id));
+    tiranoDriversByDate = new Map();
+    livignoDriversByDate = new Map();
 
     for (const day of planningDays) {
       const dateKey = day.toISOString().split('T')[0];
-      let tiranoCount = 0;
-      let livignoCount = 0;
+      const dayTiranoDrivers = tiranoDriversForConversion.filter(d => isDriverAvailableOn(d.id, dateKey));
+      const dayLivignoDrivers = livignoDriversForConversion.filter(d => isDriverAvailableOn(d.id, dateKey));
 
-      for (const avail of driverAvailability) {
-        // If availableDates not specified, driver is available all days
-        const isAvailable = !avail.availableDates || avail.availableDates.length === 0 || avail.availableDates.includes(dateKey);
-        if (isAvailable) {
-          const driver = drivers.find(d => d.id === avail.driverId);
-          if (driver) {
-            if (driver.baseLocationId === livignoLocation.id) {
-              livignoCount++;
-            } else {
-              tiranoCount++;
-            }
-          }
-        }
-      }
-
-      tiranoDriversPerDay.push(tiranoCount);
-      livignoDriversPerDay.push(livignoCount);
+      tiranoDriversByDate.set(dateKey, dayTiranoDrivers);
+      livignoDriversByDate.set(dateKey, dayLivignoDrivers);
+      tiranoDriversPerDay.push(dayTiranoDrivers.length);
+      livignoDriversPerDay.push(dayLivignoDrivers.length);
     }
   } else {
     // Default: only RESIDENT drivers
@@ -1308,6 +1314,9 @@ export async function runCPSATOptimizer(
     // This prevents assigning TRANSFER to drivers excluded from the run.
     tiranoYardDrivers: tiranoDriversForConversion,
     livignoDrivers: livignoDriversForConversion,
+    tiranoDriversByDate,
+    tiranoYardDriversByDate: tiranoDriversByDate,
+    livignoDriversByDate,
     tiranoVehicles,
     livignoVehicles,
     trailers,
@@ -1320,6 +1329,53 @@ export async function runCPSATOptimizer(
   };
 
   const trips = await convertSolverOutputToTrips(solverResult, conversionContext);
+
+  // Safety check: if explicit daily availability is provided, converted trips must respect it.
+  if (hasExplicitAvailability && driverAvailability) {
+    const availabilityMap = new Map<string, Set<string>>();
+    for (const avail of driverAvailability) {
+      availabilityMap.set(avail.driverId, new Set(avail.availableDates || []));
+    }
+    const violations: string[] = [];
+    for (const trip of trips) {
+      const allowedDates = availabilityMap.get(trip.driverId);
+      const tripDate = trip.departureTime.toISOString().split('T')[0];
+      if (!allowedDates) {
+        violations.push(`Driver ${trip.driverId} not in availability list (${tripDate})`);
+        continue;
+      }
+      if (allowedDates.size > 0 && !allowedDates.has(tripDate)) {
+        violations.push(`Driver ${trip.driverId} unavailable on ${tripDate}`);
+      }
+    }
+    if (violations.length > 0) {
+      warnings.push(
+        `Availability mismatch after conversion: ${violations[0]}${violations.length > 1 ? ` (+${violations.length - 1} more)` : ''}`
+      );
+      return {
+        success: false,
+        trips: [],
+        warnings,
+        statistics: {
+          totalTrips: 0,
+          totalLiters: 0,
+          totalDrivingHours: 0,
+          trailersAtParking: trailers.length,
+          unmetLiters: schedule.requiredLiters,
+          tripsByType: {
+            SHUTTLE_LIVIGNO: 0,
+            SUPPLY_MILANO: 0,
+            FULL_ROUND: 0,
+            TRANSFER_TIRANO: 0,
+            SHUTTLE_FROM_LIVIGNO: 0,
+            SUPPLY_FROM_LIVIGNO: 0,
+          },
+        },
+        solverStatus: solverResult.status,
+        solverObjectiveLiters: solverResult.objective_liters,
+      };
+    }
+  }
 
   // Calculate statistics
   const tripsByType = {
