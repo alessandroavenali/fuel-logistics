@@ -431,7 +431,10 @@ def solve(data: Dict) -> SolveResult:
                     <= biweekly_drive_limit_minutes
                 )
 
-    # Objective: maximize deliveries.
+    # Objective:
+    # 1) maximize deliveries (primary)
+    # 2) among equal-delivery solutions, prefer earlier starts (secondary)
+    # This removes random-looking shifts/gaps caused by arbitrary tie-breaking.
     total_deliveries = model.new_int_var(0, n * slots_per_day, "total_deliveries")
     model.add(
         total_deliveries
@@ -442,7 +445,23 @@ def solve(data: Dict) -> SolveResult:
             for d in range(n)
         )
     )
-    model.maximize(total_deliveries)
+    total_start_slots = sum(
+        sum(
+            t * (S_start[d][i][t] + U_start[d][i][t])
+            for i in range(drivers_T_base)
+            for t in range(slots_per_day)
+        )
+        + sum(
+            t * (V_start[d][j][t] + A_start[d][j][t])
+            for j in range(drivers_L_base)
+            for t in range(slots_per_day)
+        )
+        + sum(t * R_start[d][t] for t in range(slots_per_day))
+        for d in range(n)
+    )
+    # "big_m" must dominate any plausible secondary-term variation.
+    big_m = 100_000
+    model.maximize(total_deliveries * big_m - total_start_slots)
 
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = float(data.get("time_limit_seconds", 600))
