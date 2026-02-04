@@ -445,7 +445,7 @@ def solve(data: Dict) -> SolveResult:
     model.maximize(total_deliveries)
 
     solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = float(data.get("time_limit_seconds", 10))
+    solver.parameters.max_time_in_seconds = float(data.get("time_limit_seconds", 600))
     solver.parameters.num_search_workers = int(data.get("num_search_workers", 8))
 
     status_code = solver.solve(model)
