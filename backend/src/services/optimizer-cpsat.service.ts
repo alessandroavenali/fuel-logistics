@@ -1281,7 +1281,9 @@ export async function runCPSATOptimizer(
     prisma,
     scheduleId,
     tiranoDrivers: tiranoDriversForConversion,
-    tiranoYardDrivers: allTiranoDrivers,
+    // Keep yard-assignment pool aligned with the optimizer driver pool.
+    // This prevents assigning TRANSFER to drivers excluded from the run.
+    tiranoYardDrivers: tiranoDriversForConversion,
     livignoDrivers: livignoDriversForConversion,
     tiranoVehicles,
     livignoVehicles,
