@@ -66,7 +66,7 @@ export interface DayResult {
   R: number;   // Refill operations
   drivers_T: { starts: { task: string; slot: number }[] }[];
   drivers_L: { starts: { task: string; slot: number }[] }[];
-  refill_starts?: { task: string; slot: number }[];  // REFILL starts (no driver assigned)
+  refill_starts?: { task: string; slot: number; count?: number }[];  // REFILL starts (no driver assigned)
   FT_start: number;
   ET_start: number;
   Tf_start: number;
@@ -156,6 +156,7 @@ export function createSolverInput(params: {
   initialFullTrailers?: number;
   initialFullTractors?: number;
   timeLimitSeconds?: number;
+  numSearchWorkers?: number;
 }): SolverInput {
   const {
     startDate,
@@ -167,6 +168,7 @@ export function createSolverInput(params: {
     initialFullTrailers = 0,
     initialFullTractors = 0,
     timeLimitSeconds = 60,
+    numSearchWorkers = 8,
   } = params;
 
   return {
@@ -185,6 +187,7 @@ export function createSolverInput(params: {
     drivers_T_base: Math.max(...tiranoDriversPerDay, 4),
     drivers_L_base: Math.max(...livignoDriversPerDay, 1),
     time_limit_seconds: timeLimitSeconds,
+    num_search_workers: numSearchWorkers,
   };
 }
 
@@ -638,12 +641,15 @@ export async function convertSolverOutputToTrips(
     // REFILL operations (no driver assigned, use Tirano driver 0 for the trip record)
     if (dayResult.refill_starts) {
       for (const start of dayResult.refill_starts) {
-        assignments.push({
-          driverIndex: 0,  // REFILL doesn't need specific driver, use first available
-          driverBase: 'tirano',
-          task: start.task,
-          slot: start.slot,
-        });
+        const count = Math.max(1, start.count ?? 1);
+        for (let k = 0; k < count; k++) {
+          assignments.push({
+            driverIndex: 0,  // REFILL doesn't need specific driver, use first available
+            driverBase: 'tirano',
+            task: start.task,
+            slot: start.slot,
+          });
+        }
       }
     }
 
@@ -666,13 +672,22 @@ export async function convertSolverOutputToTrips(
       const returnTime = new Date(departureTime);
       returnTime.setMinutes(returnTime.getMinutes() + taskDuration.minutes);
 
-      // Get driver from appropriate pool
-      const driverPool = driverBase === 'tirano' ? ctx.tiranoDrivers : ctx.livignoDrivers;
-      if (driverIndex >= driverPool.length) {
-        console.warn(`Driver index ${driverIndex} out of range for ${driverBase} pool`);
+      // REFILL has no real driver assignment in solver output, but Trip requires a driverId.
+      // Use a stable fallback driver so conversion doesn't lose liters when D_T=0.
+      let driver: Driver | null = null;
+      if (task === 'R') {
+        driver = ctx.tiranoDrivers[0] ?? ctx.livignoDrivers[0] ?? null;
+      } else {
+        const driverPool = driverBase === 'tirano' ? ctx.tiranoDrivers : ctx.livignoDrivers;
+        if (driverIndex >= driverPool.length) {
+          console.warn(`Driver index ${driverIndex} out of range for ${driverBase} pool`);
+          continue;
+        }
+        driver = driverPool[driverIndex];
+      }
+      if (!driver) {
         continue;
       }
-      const driver = driverPool[driverIndex];
 
       // Find available vehicle based on task type
       let vehicle: Vehicle | null = null;
@@ -683,7 +698,7 @@ export async function convertSolverOutputToTrips(
           vehicle = findVehicleAtLocation(
             ctx.tiranoVehicles,
             ctx.locations.tirano.id,
-            false, // empty tank OK
+            'empty', // S consumes an empty tractor
             departureTime,
             returnTime,
             tracker
@@ -713,7 +728,7 @@ export async function convertSolverOutputToTrips(
           vehicle = findVehicleAtLocation(
             ctx.tiranoVehicles,
             ctx.locations.tirano.id,
-            true, // needs full tank
+            'full', // needs full tank
             departureTime,
             returnTime,
             tracker
@@ -729,7 +744,7 @@ export async function convertSolverOutputToTrips(
           vehicle = findVehicleAtLocation(
             ctx.livignoVehicles,
             ctx.locations.livigno.id,
-            false, // starts with empty tank
+            'empty', // starts with empty tank
             departureTime,
             returnTime,
             tracker
@@ -757,7 +772,7 @@ export async function convertSolverOutputToTrips(
           vehicle = findVehicleAtLocation(
             ctx.livignoVehicles,
             ctx.locations.livigno.id,
-            false,
+            'empty',
             departureTime,
             returnTime,
             tracker
@@ -781,24 +796,22 @@ export async function convertSolverOutputToTrips(
           break;
 
         case 'R': // TRANSFER_TIRANO - Refill operation (yard operation, 30 min)
-          // REFILL transfers fuel from a full trailer to an empty vehicle tank
-          vehicle = findVehicleAtLocation(
+          // REFILL transfers fuel from a full trailer to an empty vehicle tank.
+          // We map it to a concrete empty vehicle so subsequent SHUTTLE tasks can consume that tank.
+          vehicle = findEmptyVehicleForRefill(
             ctx.tiranoVehicles,
-            ctx.locations.tirano.id,
-            false, // empty tank (will be filled)
             departureTime,
             returnTime,
             tracker
           );
           if (vehicle) {
             const trailerId = findFullTrailer(tracker, departureTime, returnTime, ctx.trailers);
+
             if (trailerId) {
               // Update state
               tracker.trailerState.atTiranoFull.delete(trailerId);
               tracker.pendingEmptyTrailers.set(trailerId, returnTime);
-              // Vehicle tank becomes full
-              tracker.vehicleTankState.tankFull.set(vehicle.id, true);
-              reserveResource(trailerId, departureTime, returnTime, tracker.trailerSlots);
+              tracker.pendingFullTanks.set(vehicle.id, returnTime);
               // Track trailer in trip (shows which trailer was emptied)
               tripTrailers = [{
                 trailerId,
@@ -807,6 +820,7 @@ export async function convertSolverOutputToTrips(
                 isPickup: true, // pickup from trailer = emptying it
               }];
             }
+            // Keep a short reservation to avoid assigning the same vehicle to overlapping REFILLs.
             reserveResource(vehicle.id, departureTime, returnTime, tracker.vehicleSlots);
           }
           break;
@@ -839,7 +853,7 @@ export async function convertSolverOutputToTrips(
 function findVehicleAtLocation(
   vehicles: Vehicle[],
   locationId: string,
-  needsFullTank: boolean,
+  tankRequirement: 'any' | 'full' | 'empty',
   start: Date,
   end: Date,
   tracker: ResourceTracker
@@ -857,24 +871,42 @@ function findVehicleAtLocation(
       tracker.pendingFullTanks.delete(vehicle.id);
     }
 
-    if ((!needsFullTank || willBeFull) &&
-        isResourceAvailable(vehicle.id, start, end, tracker.vehicleSlots)) {
+    const tankOk =
+      tankRequirement === 'any' ||
+      (tankRequirement === 'full' && willBeFull) ||
+      (tankRequirement === 'empty' && !willBeFull);
+
+    if (tankOk && isResourceAvailable(vehicle.id, start, end, tracker.vehicleSlots)) {
       return vehicle;
     }
   }
 
-  // Second pass: TRUST THE SOLVER - if it planned this task, a vehicle MUST be available
-  // Just find any available vehicle (not reserved for this time slot)
+  return null;
+}
+
+/**
+ * Pick a Tirano vehicle with empty tank for a REFILL operation.
+ */
+function findEmptyVehicleForRefill(
+  vehicles: Vehicle[],
+  start: Date,
+  end: Date,
+  tracker: ResourceTracker
+): Vehicle | null {
   for (const vehicle of vehicles) {
-    if (isResourceAvailable(vehicle.id, start, end, tracker.vehicleSlots)) {
-      // Force the tank state if needed
-      if (needsFullTank) {
-        tracker.vehicleTankState.tankFull.set(vehicle.id, true);
-      }
+    const isFull = tracker.vehicleTankState.tankFull.get(vehicle.id) ?? false;
+    const pendingTime = tracker.pendingFullTanks.get(vehicle.id);
+    const willBeFullAtStart = !!pendingTime && pendingTime <= start;
+    if (willBeFullAtStart) {
+      tracker.vehicleTankState.tankFull.set(vehicle.id, true);
+      tracker.pendingFullTanks.delete(vehicle.id);
+    }
+
+    const currentlyFull = tracker.vehicleTankState.tankFull.get(vehicle.id) ?? false;
+    if (!currentlyFull && isResourceAvailable(vehicle.id, start, end, tracker.vehicleSlots)) {
       return vehicle;
     }
   }
-
   return null;
 }
 
@@ -902,13 +934,6 @@ function findTrailerForSupply(
       return trailerId;
     }
   }
-  // TRUST THE SOLVER: find ANY available trailer
-  for (const trailer of allTrailers) {
-    if (isResourceAvailable(trailer.id, start, end, tracker.trailerSlots)) {
-      tracker.trailerState.atTiranoEmpty.add(trailer.id);
-      return trailer.id;
-    }
-  }
   return null;
 }
 
@@ -934,13 +959,6 @@ function findFullTrailer(
       tracker.trailerState.atTiranoFull.add(trailerId);
       tracker.pendingFullTrailers.delete(trailerId);
       return trailerId;
-    }
-  }
-  // TRUST THE SOLVER: find ANY available trailer
-  for (const trailer of allTrailers) {
-    if (isResourceAvailable(trailer.id, start, end, tracker.trailerSlots)) {
-      tracker.trailerState.atTiranoFull.add(trailer.id);
-      return trailer.id;
     }
   }
   return null;
@@ -979,8 +997,11 @@ interface OptimizationResult {
 function getWorkingDays(startDate: Date, endDate: Date, includeWeekend: boolean = false): Date[] {
   const days: Date[] = [];
   const current = new Date(startDate);
+  current.setHours(12, 0, 0, 0);
+  const end = new Date(endDate);
+  end.setHours(12, 0, 0, 0);
 
-  while (current <= endDate) {
+  while (current <= end) {
     const dayOfWeek = current.getDay();
     if (includeWeekend || (dayOfWeek >= 1 && dayOfWeek <= 5)) {
       days.push(new Date(current));
@@ -989,6 +1010,19 @@ function getWorkingDays(startDate: Date, endDate: Date, includeWeekend: boolean 
   }
 
   return days;
+}
+
+function parseInputDate(value: string | Date): Date {
+  if (value instanceof Date) {
+    const d = new Date(value);
+    d.setHours(12, 0, 0, 0);
+    return d;
+  }
+  // Accept either YYYY-MM-DD or full ISO strings, but normalize to local date at noon
+  const datePart = value.slice(0, 10);
+  const [y, m, d] = datePart.split('-').map(Number);
+  const parsed = new Date(y, (m || 1) - 1, d || 1, 12, 0, 0, 0);
+  return parsed;
 }
 
 /**
@@ -1000,8 +1034,10 @@ function getWorkingDays(startDate: Date, endDate: Date, includeWeekend: boolean 
 export async function runCPSATOptimizer(
   prisma: PrismaClient,
   scheduleId: string,
-  driverAvailability?: DriverAvailabilityInput[]
+  driverAvailability?: DriverAvailabilityInput[],
+  options: { persist?: boolean } = {}
 ): Promise<OptimizationResult> {
+  const persist = options.persist ?? true;
   const warnings: string[] = [];
 
   // Fetch schedule
@@ -1136,6 +1172,10 @@ export async function runCPSATOptimizer(
     initialFullTrailers,
     initialFullTractors,
     timeLimitSeconds: 60,
+    // Keep solver output deterministic across runs to avoid conversion drift.
+    // Parallel search can produce alternate optimal plans that are harder to map
+    // to concrete resource identities with the current converter.
+    numSearchWorkers: 1,
   });
 
   // Run solver
@@ -1230,33 +1270,64 @@ export async function runCPSATOptimizer(
     totalDrivingHours += (trip.returnTime.getTime() - trip.departureTime.getTime()) / (1000 * 60 * 60);
   }
 
-  // Delete existing trips and create new ones
-  await prisma.$transaction(async (tx) => {
-    await tx.trip.deleteMany({ where: { scheduleId } });
-
-    for (const trip of trips) {
-      await tx.trip.create({
-        data: {
-          scheduleId,
-          vehicleId: trip.vehicleId,
-          driverId: trip.driverId,
-          date: trip.date,
-          departureTime: trip.departureTime,
-          returnTime: trip.returnTime,
-          tripType: trip.tripType,
-          status: 'PLANNED',
-          trailers: {
-            create: trip.trailers.map(t => ({
-              trailerId: t.trailerId,
-              litersLoaded: t.litersLoaded,
-              dropOffLocationId: t.dropOffLocationId,
-              isPickup: t.isPickup,
-            })),
-          },
+  // Safety check: persisted trip plan must match solver objective.
+  if (totalLiters !== solverResult.objective_liters) {
+    warnings.push(
+      `Conversion mismatch: solver=${solverResult.objective_liters}L, generated=${totalLiters}L. Aborting persistence.`
+    );
+    return {
+      success: false,
+      trips: [],
+      warnings,
+      statistics: {
+        totalTrips: 0,
+        totalLiters: 0,
+        totalDrivingHours: 0,
+        trailersAtParking: trailers.length,
+        unmetLiters: schedule.requiredLiters,
+        tripsByType: {
+          SHUTTLE_LIVIGNO: 0,
+          SUPPLY_MILANO: 0,
+          FULL_ROUND: 0,
+          TRANSFER_TIRANO: 0,
+          SHUTTLE_FROM_LIVIGNO: 0,
+          SUPPLY_FROM_LIVIGNO: 0,
         },
-      });
-    }
-  });
+      },
+      solverStatus: solverResult.status,
+      solverObjectiveLiters: solverResult.objective_liters,
+    };
+  }
+
+  // Delete existing trips and create new ones (unless dry-run mode).
+  if (persist) {
+    await prisma.$transaction(async (tx) => {
+      await tx.trip.deleteMany({ where: { scheduleId } });
+
+      for (const trip of trips) {
+        await tx.trip.create({
+          data: {
+            scheduleId,
+            vehicleId: trip.vehicleId,
+            driverId: trip.driverId,
+            date: trip.date,
+            departureTime: trip.departureTime,
+            returnTime: trip.returnTime,
+            tripType: trip.tripType,
+            status: 'PLANNED',
+            trailers: {
+              create: trip.trailers.map(t => ({
+                trailerId: t.trailerId,
+                litersLoaded: t.litersLoaded,
+                dropOffLocationId: t.dropOffLocationId,
+                isPickup: t.isPickup,
+              })),
+            },
+          },
+        });
+      }
+    });
+  }
 
   return {
     success: totalLiters >= schedule.requiredLiters,
@@ -1323,8 +1394,8 @@ export async function calculateMaxCapacityCPSAT(
   prisma: PrismaClient,
   input: CalculateMaxInput
 ): Promise<MaxCapacityResult> {
-  const startDate = new Date(input.startDate);
-  const endDate = new Date(input.endDate);
+  const startDate = parseInputDate(input.startDate);
+  const endDate = parseInputDate(input.endDate);
   const workingDays = getWorkingDays(startDate, endDate, input.includeWeekend ?? false);
   const constraints: string[] = [];
 

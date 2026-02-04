@@ -25,6 +25,7 @@ import {
 import {
   useSchedule,
   useOptimizeSchedule,
+  useOptimizerSelfCheck,
   useConfirmSchedule,
   useValidateSchedule,
   useCreateTrip,
@@ -62,6 +63,7 @@ import {
   getStatusColor,
   getDriverTypeLabel,
 } from '@/lib/utils';
+import type { OptimizerSelfCheckResult } from '@/api/client';
 import type { Trip, Location, ValidationResult, TrailerStatus, VehicleStatus, DriverAvailability, Route, ScheduleInitialState, ScheduleVehicleState, TripType } from '@/types';
 
 // Helper per badge tipo viaggio
@@ -112,6 +114,8 @@ export default function ScheduleDetail() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isNewTrip, setIsNewTrip] = useState(false);
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
+  const [optimizerWarnings, setOptimizerWarnings] = useState<string[]>([]);
+  const [selfCheckResult, setSelfCheckResult] = useState<OptimizerSelfCheckResult | null>(null);
   const [showAdrDialog, setShowAdrDialog] = useState(false);
   const [adrExceptions, setAdrExceptions] = useState<Record<string, number>>({});
 
@@ -590,6 +594,7 @@ export default function ScheduleDetail() {
   }, [routeMap, sourceLocation, parkingLocation, destinationLocation]);
 
   const optimizeMutation = useOptimizeSchedule();
+  const selfCheckMutation = useOptimizerSelfCheck();
   const confirmMutation = useConfirmSchedule();
   const validateMutation = useValidateSchedule();
   const createTripMutation = useCreateTrip();
@@ -639,6 +644,7 @@ export default function ScheduleDetail() {
         id: id!,
         driverAvailability: driverAvailability.length > 0 ? driverAvailability : undefined
       });
+      setOptimizerWarnings(result.warnings || []);
       toast({
         title: 'Ottimizzazione completata',
         description: `Generati ${result.statistics.totalTrips} viaggi per ${formatLiters(result.statistics.totalLiters)}`,
@@ -649,6 +655,19 @@ export default function ScheduleDetail() {
           title: 'Attenzione',
           description: result.warnings.join(', '),
           variant: 'warning' as any,
+        });
+      }
+
+      const selfCheck = await selfCheckMutation.mutateAsync({
+        id: id!,
+        driverAvailability: driverAvailability.length > 0 ? driverAvailability : undefined,
+      });
+      setSelfCheckResult(selfCheck);
+      if (selfCheck.mismatch) {
+        toast({
+          title: 'Attenzione coerenza piano',
+          description: `Mismatch: DB=${formatLiters(selfCheck.persistedLiters)} vs Solver=${formatLiters(selfCheck.solverObjectiveLiters)}`,
+          variant: 'destructive',
         });
       }
     } catch (error: any) {
@@ -864,6 +883,23 @@ export default function ScheduleDetail() {
               <AlertTriangle className="mr-2 h-4 w-4" />
               Valida ADR
             </Button>
+            <Button
+              variant="outline"
+              onClick={async () => {
+                if (!id) return;
+                const result = await selfCheckMutation.mutateAsync({ id });
+                setSelfCheckResult(result);
+                toast({
+                  title: result.mismatch ? 'Self-check: mismatch' : 'Self-check: OK',
+                  description: `DB ${formatLiters(result.persistedLiters)} vs Solver ${formatLiters(result.solverObjectiveLiters)}`,
+                  variant: result.mismatch ? 'destructive' : 'success',
+                });
+              }}
+              disabled={selfCheckMutation.isPending}
+            >
+              <Clock className="mr-2 h-4 w-4" />
+              Self-check
+            </Button>
             <Button onClick={handleConfirm} disabled={confirmMutation.isPending || !schedule.trips?.length}>
               <CheckCircle className="mr-2 h-4 w-4" />
               Conferma
@@ -912,6 +948,25 @@ export default function ScheduleDetail() {
           </CardContent>
         </Card>
       </div>
+
+      {(optimizerWarnings.length > 0 || selfCheckResult) && (
+        <Card className={selfCheckResult?.mismatch ? 'border-red-200 bg-red-50 dark:bg-red-950 dark:border-red-800' : 'border-amber-200 bg-amber-50 dark:bg-amber-950 dark:border-amber-800'}>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Diagnostica Ottimizzatore</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            {selfCheckResult && (
+              <p>
+                Self-check: DB {formatLiters(selfCheckResult.persistedLiters)} vs Solver {formatLiters(selfCheckResult.solverObjectiveLiters)}
+                {selfCheckResult.mismatch ? ' (mismatch)' : ' (ok)'}.
+              </p>
+            )}
+            {optimizerWarnings.map((w, idx) => (
+              <p key={idx}>- {w}</p>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Initial States - Trailers */}
       {schedule.initialStates && schedule.initialStates.length > 0 && (

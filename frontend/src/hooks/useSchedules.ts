@@ -93,6 +93,15 @@ export function useCalculateMaxCapacity() {
   });
 }
 
+export function useOptimizerSelfCheck() {
+  return useMutation({
+    mutationFn: ({ id, driverAvailability }: {
+      id: string;
+      driverAvailability?: import('@/api/client').DriverAvailabilityInput[]
+    }) => schedulesApi.optimizerSelfCheck(id, driverAvailability),
+  });
+}
+
 export function useScheduleTrips(scheduleId: string) {
   return useQuery({
     queryKey: ['schedules', scheduleId, 'trips'],

@@ -181,6 +181,18 @@ export interface CalculateMaxInput {
   includeWeekend?: boolean;
 }
 
+export interface OptimizerSelfCheckResult {
+  scheduleId: string;
+  persistedTrips: number;
+  persistedLiters: number;
+  plannedTrips: number;
+  plannedLiters: number;
+  solverObjectiveLiters: number;
+  solverStatus?: string;
+  mismatch: boolean;
+  warnings: string[];
+}
+
 export const schedulesApi = {
   getAll: (status?: string) =>
     request<any[]>(`/schedules${status ? `?status=${status}` : ''}`),
@@ -191,6 +203,11 @@ export const schedulesApi = {
   delete: (id: string) => request<void>(`/schedules/${id}`, { method: 'DELETE' }),
   optimize: (id: string, driverAvailability?: DriverAvailabilityInput[]) =>
     request<any>(`/schedules/${id}/optimize`, {
+      method: 'POST',
+      body: JSON.stringify({ driverAvailability })
+    }),
+  optimizerSelfCheck: (id: string, driverAvailability?: DriverAvailabilityInput[]) =>
+    request<OptimizerSelfCheckResult>(`/schedules/${id}/optimizer-self-check`, {
       method: 'POST',
       body: JSON.stringify({ driverAvailability })
     }),

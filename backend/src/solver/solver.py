@@ -458,6 +458,11 @@ def solve(data: Dict) -> SolveResult:
         v_count = sum(int(solver.value(V_start[d][j][t])) for j in range(drivers_L_base) for t in range(slots_per_day))
         a_count = sum(int(solver.value(A_start[d][j][t])) for j in range(drivers_L_base) for t in range(slots_per_day))
         r_count = sum(int(solver.value(R_start[d][t])) for t in range(slots_per_day))
+        refill_starts = [
+            {"task": "R", "slot": t, "count": int(solver.value(R_start[d][t]))}
+            for t in range(slots_per_day)
+            if int(solver.value(R_start[d][t])) > 0
+        ]
 
         drivers_T = []
         for i in range(drivers_T_base):
@@ -479,13 +484,6 @@ def solve(data: Dict) -> SolveResult:
                     starts.append({"task": "A", "slot": t})
             drivers_L.append({"starts": starts})
 
-        # Collect REFILL starts (not assigned to specific driver)
-        refill_starts = []
-        for t in range(slots_per_day):
-            r_val = int(solver.value(R_start[d][t]))
-            for _ in range(r_val):  # Multiple REFILLs can happen at same slot
-                refill_starts.append({"task": "R", "slot": t})
-
         days_out.append(
             {
                 "date": days[d]["date"],
@@ -496,9 +494,9 @@ def solve(data: Dict) -> SolveResult:
                 "V": v_count,
                 "A": a_count,
                 "R": r_count,
+                "refill_starts": refill_starts,
                 "drivers_T": drivers_T,
                 "drivers_L": drivers_L,
-                "refill_starts": refill_starts,
                 "FT_start": int(solver.value(FT[d][0])),
                 "ET_start": int(solver.value(ET[d][0])),
                 "Tf_start": int(solver.value(Tf[d][0])),

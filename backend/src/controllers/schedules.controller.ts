@@ -290,6 +290,69 @@ export async function optimizeScheduleHandler(req: Request, res: Response, next:
   }
 }
 
+export async function optimizerSelfCheckHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    const prisma: PrismaClient = (req as any).prisma;
+    const { id } = req.params;
+    const { driverAvailability } = req.body || {};
+
+    const schedule = await prisma.schedule.findUnique({
+      where: { id },
+      include: {
+        trips: true,
+      },
+    });
+
+    if (!schedule) {
+      throw new AppError(404, 'Schedule not found');
+    }
+
+    const litersByType: Record<string, number> = {
+      SHUTTLE_LIVIGNO: 17500,
+      SHUTTLE_FROM_LIVIGNO: 17500,
+      SUPPLY_FROM_LIVIGNO: 17500,
+      SUPPLY_MILANO: 0,
+      TRANSFER_TIRANO: 0,
+      FULL_ROUND: 17500,
+    };
+
+    const persistedLiters = schedule.trips.reduce(
+      (sum, t) => sum + (litersByType[t.tripType] ?? 0),
+      0
+    );
+
+    const dryRun = await runCPSATOptimizer(
+      prisma,
+      id,
+      driverAvailability,
+      { persist: false }
+    );
+
+    const plannedLiters = dryRun.statistics.totalLiters;
+    const solverObjectiveLiters = dryRun.solverObjectiveLiters ?? plannedLiters;
+    const mismatch = persistedLiters !== solverObjectiveLiters;
+
+    res.json({
+      scheduleId: id,
+      persistedTrips: schedule.trips.length,
+      persistedLiters,
+      plannedTrips: dryRun.statistics.totalTrips,
+      plannedLiters,
+      solverObjectiveLiters,
+      solverStatus: dryRun.solverStatus,
+      mismatch,
+      warnings: [
+        ...dryRun.warnings,
+        ...(mismatch
+          ? [`Mismatch detected: persisted=${persistedLiters}L vs solver=${solverObjectiveLiters}L`]
+          : []),
+      ],
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function confirmSchedule(req: Request, res: Response, next: NextFunction) {
   try {
     const prisma: PrismaClient = (req as any).prisma;

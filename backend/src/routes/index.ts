@@ -59,6 +59,7 @@ router.post('/schedules', schedulesController.createSchedule);
 router.put('/schedules/:id', schedulesController.updateSchedule);
 router.delete('/schedules/:id', schedulesController.deleteSchedule);
 router.post('/schedules/:id/optimize', schedulesController.optimizeScheduleHandler);
+router.post('/schedules/:id/optimizer-self-check', schedulesController.optimizerSelfCheckHandler);
 router.put('/schedules/:id/confirm', schedulesController.confirmSchedule);
 router.post('/schedules/:id/validate', schedulesController.validateSchedule);
 
