@@ -401,6 +401,7 @@ interface ConversionContext {
   prisma: PrismaClient;
   scheduleId: string;
   tiranoDrivers: Driver[];
+  tiranoYardDrivers: Driver[];
   livignoDrivers: Driver[];
   tiranoVehicles: Vehicle[];
   livignoVehicles: Vehicle[];
@@ -837,17 +838,12 @@ export async function convertSolverOutputToTrips(
 
       if (task === 'R') {
         driver = findAvailableDriver(
-          ctx.tiranoDrivers,
+          ctx.tiranoYardDrivers,
           departureTime,
           returnTime,
           driverSlots,
           fixedDriverBusy
         );
-        // Hard fallback: REFILL is a Tirano yard operation; never attach it to Livigno drivers.
-        // If no Tirano driver is currently free, use the first Tirano driver for traceability.
-        if (!driver) {
-          driver = ctx.tiranoDrivers[0] ?? null;
-        }
       }
 
       if (!driver) {
@@ -1285,6 +1281,7 @@ export async function runCPSATOptimizer(
     prisma,
     scheduleId,
     tiranoDrivers: tiranoDriversForConversion,
+    tiranoYardDrivers: allTiranoDrivers,
     livignoDrivers: livignoDriversForConversion,
     tiranoVehicles,
     livignoVehicles,
