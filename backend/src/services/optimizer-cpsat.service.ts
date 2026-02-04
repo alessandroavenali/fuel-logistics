@@ -657,6 +657,22 @@ export async function convertSolverOutputToTrips(
     // Sort by slot to process in chronological order
     assignments.sort((a, b) => a.slot - b.slot);
 
+    // Pre-compute busy windows for solver-assigned drivers (tasks with explicit driver index).
+    // REFILL ("R") must not be attached to a driver already occupied by fixed tasks.
+    const fixedDriverBusy = new Map<string, { start: Date; end: Date }[]>();
+    for (const assignment of assignments) {
+      if (assignment.task === 'R') continue;
+      const taskDuration = TASK_DURATIONS[assignment.task as keyof typeof TASK_DURATIONS];
+      if (!taskDuration) continue;
+      const driverPool = assignment.driverBase === 'tirano' ? ctx.tiranoDrivers : ctx.livignoDrivers;
+      if (assignment.driverIndex >= driverPool.length) continue;
+      const fixedDriver = driverPool[assignment.driverIndex];
+      const fixedStart = slotToDate(assignment.slot, dateStr);
+      const fixedEnd = new Date(fixedStart);
+      fixedEnd.setMinutes(fixedEnd.getMinutes() + taskDuration.minutes);
+      reserveResource(fixedDriver.id, fixedStart, fixedEnd, fixedDriverBusy);
+    }
+
     // Process each assignment
     for (const assignment of assignments) {
       const { driverIndex, driverBase, task, slot } = assignment;
@@ -824,7 +840,8 @@ export async function convertSolverOutputToTrips(
           [...ctx.tiranoDrivers, ...ctx.livignoDrivers],
           departureTime,
           returnTime,
-          driverSlots
+          driverSlots,
+          fixedDriverBusy
         );
       }
 
@@ -921,10 +938,15 @@ function findAvailableDriver(
   drivers: Driver[],
   start: Date,
   end: Date,
-  slots: Map<string, { start: Date; end: Date }[]>
+  slots: Map<string, { start: Date; end: Date }[]>,
+  fixedBusySlots?: Map<string, { start: Date; end: Date }[]>
 ): Driver | null {
   for (const driver of drivers) {
-    if (isResourceAvailable(driver.id, start, end, slots)) {
+    const freeInAssigned = isResourceAvailable(driver.id, start, end, slots);
+    const freeInFixed = fixedBusySlots
+      ? isResourceAvailable(driver.id, start, end, fixedBusySlots)
+      : true;
+    if (freeInAssigned && freeInFixed) {
       return driver;
     }
   }
