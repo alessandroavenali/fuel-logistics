@@ -6,7 +6,7 @@ Sistema di ottimizzazione logistica per trasporto carburante Milano â†’ Tirano â
 
 ### Ambiente di Produzione
 
-- **URL**: http://46.224.126.189:8088
+- **URL**: https://fuel.flipr.cloud
 - **Server**: flipr-nue (Ubuntu 24.04)
 - **Stack**: Docker (PostgreSQL + Node.js backend + nginx frontend)
 
