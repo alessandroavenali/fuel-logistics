@@ -1646,8 +1646,10 @@ export async function calculateMaxCapacityCPSAT(
     initialFullTrailers,
     initialFullTractors,
     // MAX capacity can be an expensive solve on long horizons/asymmetric shifts.
-    // Keep the same long timeout as optimization runs.
+    // Keep the same long timeout as optimization runs and reduce worker count
+    // to limit memory pressure on long runs.
     timeLimitSeconds: 600,
+    numSearchWorkers: 1,
     includeWeekend: hasExplicitAvailability ? true : (input.includeWeekend ?? false),
   });
 
@@ -1673,6 +1675,7 @@ export async function calculateMaxCapacityCPSAT(
       },
       dailyCapacity: 0,
       constraints,
+      solverStatus: 'ERROR',
     };
   }
 
