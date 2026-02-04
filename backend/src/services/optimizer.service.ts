@@ -6,7 +6,8 @@ import { validateSingleTrip, ADR_LIMITS } from './adrValidator.service.js';
 // ============================================================================
 
 // Tempi fissi per operazioni (in minuti)
-const LOADING_TIME_SUPPLY = 60;      // Tempo carico a Milano (motrice 17.500L + rimorchio 17.500L = 35.000L)
+// Milano: refill tecnico 30' in parallelo alla pausa; si aggiungono 15' per completare i 45' ADR.
+const LOADING_TIME_SUPPLY = 45;      // Stop effettivo a Milano per SUPPLY
 const LOADING_TIME_SINGLE = 30;      // Tempo carico a Milano (solo serbatoio integrato 17.500L)
 const UNLOADING_TIME_LIVIGNO = 30;   // Tempo scarico a Livigno
 const TRANSFER_TIME_TIRANO = 30;     // Tempo sversamento rimorchio→motrice
@@ -29,7 +30,7 @@ interface TripDurations {
   FULL_ROUND: number;
   TRANSFER_TIRANO: number;
   SHUTTLE_FROM_LIVIGNO: number;    // Driver Livigno con motrice a Livigno: 4.5h
-  SUPPLY_FROM_LIVIGNO: number;     // Driver Livigno con motrice a Livigno: 10h
+  SUPPLY_FROM_LIVIGNO: number;     // Driver Livigno con motrice a Livigno: 9h45
 }
 
 async function getRouteDurations(prisma: PrismaClient): Promise<RouteDurations> {
@@ -86,24 +87,24 @@ function calculateTripDurations(routes: RouteDurations): TripDurations {
   const shuttleFromLivigno = routes.livignoToTirano + TRANSFER_TIME_TIRANO +
                              routes.tiranoToLivigno + UNLOADING_TIME_LIVIGNO;  // 90+30+120+30 = 270 min (4.5h)
 
-  // SUPPLY_FROM_LIVIGNO: Livigno → Tirano → Milano → Tirano → Livigno (10h)
+  // SUPPLY_FROM_LIVIGNO: Livigno → Tirano → Milano → Tirano → Livigno (9h45)
   // Il driver parte da Livigno, va a Tirano, aggancia rimorchio vuoto,
   // va a Milano, carica motrice+rimorchio, torna a Tirano, sgancia rimorchio pieno,
   // va a Livigno con motrice piena, scarica. Richiede eccezione ADR (max 2/settimana).
-  // Fasi: Livigno→Tirano (90min) + Tirano→Milano (150min) + Carico (60min) +
+  // Fasi: Livigno→Tirano (90min) + Tirano→Milano (150min) + Stop Milano ADR (45min) +
   //       Milano→Tirano (150min) + Tirano→Livigno (120min) + Scarico (30min)
   const supplyFromLivignoNew = routes.livignoToTirano + routes.tiranoToMilano +
                                LOADING_TIME_SUPPLY + routes.milanoToTirano +
-                               routes.tiranoToLivigno + UNLOADING_TIME_LIVIGNO;  // 90+150+60+150+120+30 = 600 min (10h)
+                               routes.tiranoToLivigno + UNLOADING_TIME_LIVIGNO;  // 90+150+45+150+120+30 = 585 min (9h45)
 
   return {
     SHUTTLE_LIVIGNO: shuttleDuration,                    // 120 + 30 + 90 = 240 min (4h)
-    SUPPLY_MILANO_FROM_TIRANO: supplyFromTirano,         // 150 + 60 + 150 = 360 min (6h)
-    SUPPLY_MILANO_FROM_LIVIGNO: supplyFromLivigno,       // 90 + 360 + 120 = 570 min (9.5h)
+    SUPPLY_MILANO_FROM_TIRANO: supplyFromTirano,         // 150 + 45 + 150 = 345 min (5h45)
+    SUPPLY_MILANO_FROM_LIVIGNO: supplyFromLivigno,       // 90 + 345 + 120 = 555 min (9h15)
     FULL_ROUND: fullRound,                               // 150 + 30 + 150 + 120 + 30 + 90 = 570 min (9.5h)
     TRANSFER_TIRANO: TRANSFER_TIME_TIRANO,               // 30 min
     SHUTTLE_FROM_LIVIGNO: shuttleFromLivigno,            // 90 + 30 + 120 + 30 = 270 min (4.5h)
-    SUPPLY_FROM_LIVIGNO: supplyFromLivignoNew,           // 90 + 150 + 60 + 150 + 120 + 30 = 600 min (10h)
+    SUPPLY_FROM_LIVIGNO: supplyFromLivignoNew,           // 90 + 150 + 45 + 150 + 120 + 30 = 585 min (9h45)
   };
 }
 
@@ -462,7 +463,7 @@ export async function optimizeSchedule(
     // ALGORITMO CON CISTERNE INTEGRATE:
     // 1. TRANSFER: sversamento rimorchio pieno → motrice vuota (30 min)
     // 2. SHUTTLE: motrice piena → Livigno → ritorna vuota (4.5h)
-    // 3. SUPPLY: motrice + 1 rimorchio → Milano → tornano pieni (6h)
+  // 3. SUPPLY: motrice + 1 rimorchio → Milano → tornano pieni (5h45)
     // 4. FULL_ROUND: fallback se nessuna risorsa disponibile
     //
     // L'obiettivo è massimizzare i litri consegnati a Livigno.
@@ -695,7 +696,7 @@ export async function optimizeSchedule(
 
         // Durate per driver Livigno con motrice dedicata a Livigno
         const shuttleFromLivignoHours = TRIP_DURATIONS.SHUTTLE_FROM_LIVIGNO / 60; // 4.5h
-        const supplyFromLivignoHours = TRIP_DURATIONS.SUPPLY_FROM_LIVIGNO / 60; // 10h
+        const supplyFromLivignoHours = TRIP_DURATIONS.SUPPLY_FROM_LIVIGNO / 60; // 9h45
 
         const hoursUntilEndOfDay = (endOfWorkDay.getTime() - availableTime.getTime()) / (1000 * 60 * 60);
         const hoursRemaining = maxHoursToday - state.hoursWorked;
@@ -781,7 +782,7 @@ export async function optimizeSchedule(
           }
           else if (emptyTrailersAtTirano >= 1 && canDoSupplyFromLivigno && state.extendedDaysThisWeek < 2) {
             // Non ci sono rimorchi pieni, ma ci sono rimorchi vuoti: SUPPLY_FROM_LIVIGNO
-            // Richiede eccezione ADR (10h), max 2 volte/settimana
+            // Richiede eccezione ADR (giornata estesa), max 2 volte/settimana
             tripType = 'SUPPLY_FROM_LIVIGNO';
             tripDurationMinutes = TRIP_DURATIONS.SUPPLY_FROM_LIVIGNO;
           }
@@ -986,8 +987,8 @@ export async function optimizeSchedule(
           }
         } else if (tripType === 'SUPPLY_MILANO') {
           // Trova motrice disponibile - preferibilmente dalla stessa base del driver
-          // Driver di Livigno possono usare motrici a Livigno (SUPPLY più lungo: 10h)
-          // Driver di Tirano usano motrici a Tirano (SUPPLY normale: 6h)
+          // Driver di Livigno possono usare motrici a Livigno (SUPPLY più lungo: 9h45)
+          // Driver di Tirano usano motrici a Tirano (SUPPLY normale: 5h45)
           const driverLocationId = driver.baseLocationId || tiranoLocation.id;
 
           // Prima cerca motrice nella stessa location del driver
@@ -1112,7 +1113,7 @@ export async function optimizeSchedule(
           }
         } else if (tripType === 'SUPPLY_FROM_LIVIGNO') {
           // =========================================================================
-          // SUPPLY_FROM_LIVIGNO: Driver Livigno con motrice a Livigno (10h, eccezione ADR)
+          // SUPPLY_FROM_LIVIGNO: Driver Livigno con motrice a Livigno (9h45, eccezione ADR)
           // =========================================================================
           // Fasi:
           // 1. Livigno → Tirano (90 min) con motrice vuota
@@ -1434,14 +1435,14 @@ export interface MaxCapacityResult {
   daysWithDeliveries: number; // Giorni con almeno un autista disponibile e consegne effettive
   breakdown: {
     livignoDriverShuttles: number;
-    livignoSupplyTrips: number;  // SUPPLY da Livigno (10h, eccezione ADR max 2/settimana)
+    livignoSupplyTrips: number;  // SUPPLY da Livigno (9h45, eccezione ADR max 2/settimana)
     tiranoDriverShuttles: number;
     tiranoDriverFullRounds: number;
-    supplyTrips: number;        // SUPPLY da Tirano (6h)
+    supplyTrips: number;        // SUPPLY da Tirano (5h45)
     transferTrips: number;      // Sversamenti a Tirano
     // Nuovi tipi per driver Livigno con motrice dedicata a Livigno
     shuttleFromLivigno: number; // SHUTTLE_FROM_LIVIGNO (4.5h)
-    supplyFromLivigno: number;  // SUPPLY_FROM_LIVIGNO (10h)
+    supplyFromLivigno: number;  // SUPPLY_FROM_LIVIGNO (9h45)
     // Tracciamento eccezioni ADR
     adrExceptionsUsed: number;  // Totale eccezioni ADR usate (10h invece di 9h)
   };
@@ -1495,7 +1496,7 @@ export async function calculateMaxCapacity(
   const HOURS_SHUTTLE = tripDurations.SHUTTLE_LIVIGNO / 60;
   const HOURS_FULL_ROUND = tripDurations.FULL_ROUND / 60;
   const HOURS_SHUTTLE_FROM_LIVIGNO = tripDurations.SHUTTLE_FROM_LIVIGNO / 60;  // 4.5h
-  const HOURS_SUPPLY_FROM_LIVIGNO = tripDurations.SUPPLY_FROM_LIVIGNO / 60;    // 10h
+  const HOURS_SUPPLY_FROM_LIVIGNO = tripDurations.SUPPLY_FROM_LIVIGNO / 60;    // 9h45
   const MAX_ADR_EXTENDED_PER_WEEK = 2; // ADR permette 10h max 2 volte/settimana
 
   const startDate = new Date(input.startDate);
@@ -1733,8 +1734,8 @@ export async function calculateMaxCapacity(
 
       // =====================================================================
       // FASE 1: SUPPLY (primi trip della giornata)
-      // Driver Tirano: SUPPLY standard (6h)
-      // Driver Livigno: SUPPLY con eccezione ADR (10h, max 2/settimana)
+      // Driver Tirano: SUPPLY standard (5h45)
+      // Driver Livigno: SUPPLY con eccezione ADR (9h45, max 2/settimana)
       // =====================================================================
       let livignoSuppliesDone = 0;
 
@@ -1743,10 +1744,10 @@ export async function calculateMaxCapacity(
       // =====================================================================
       // Calcolo basato su risorse INIZIALI del giorno.
       // Se non ci sono abbastanza risorse per 2 SHUTTLE per ogni driver,
-      // alcuni driver fanno SUPPLY+SHUTTLE combo (10h, 1 ADR) per:
+      // alcuni driver fanno SUPPLY+SHUTTLE combo (9h45, 1 ADR) per:
       // - Produrre 1 rimorchio pieno
       // - Consegnare 17.500L
-      // Questo è meglio di SUPPLY standard (6h, 0L) + 3h inutilizzate.
+      // Questo è meglio di SUPPLY standard (5h45, 0L) + ore residue inutilizzate.
       const initialResourcesForShuttle = fullTanksAtTirano + fullTrailers;
       const tiranoDriversWithFullHours = Array.from(tiranoDriverHours.values()).filter(h => h >= MAX_DAILY_HOURS).length;
       // Ogni risorsa piena = 1 SHUTTLE, ogni driver con 9h può fare max 2 SHUTTLE
@@ -1786,7 +1787,7 @@ export async function calculateMaxCapacity(
       // =====================================================================
       // STEP 2: SUPPLY standard per driver Tirano (DOPO combo)
       // =====================================================================
-      // I driver che non hanno fatto combo possono fare SUPPLY standard (6h)
+      // I driver che non hanno fatto combo possono fare SUPPLY standard (5h45)
       // per produrre risorse per domani. Ma avranno solo 3h rimaste, non abbastanza per SHUTTLE.
       // NOTA: Driver Livigno è gestito nella FASE 2 (dinamicamente decide SHUTTLE vs SUPPLY).
       if (!isLastDay) {
@@ -1855,7 +1856,7 @@ export async function calculateMaxCapacity(
               madeProgress = true;
               break;
             }
-            // SUPPLY_FROM_LIVIGNO: se non ci sono rimorchi pieni, usa vuoti (10h, eccezione ADR)
+            // SUPPLY_FROM_LIVIGNO: se non ci sono rimorchi pieni, usa vuoti (9h45, eccezione ADR)
             // NOTA: richiede eccezione ADR (max 2/settimana), quindi il driver deve avere
             // tutte le 9h disponibili (l'eccezione estende a 10h)
             const usedExceptions = livignoAdrExceptions.get(driverId) || 0;
@@ -1863,7 +1864,7 @@ export async function calculateMaxCapacity(
               emptyTrailers--;
               fullTrailers++;  // Rimorchio torna pieno a Tirano (disponibile per domani)
               // Motrice resta a Livigno
-              livignoDriverHours.set(driverId, 0);  // Giornata finita (10h)
+              livignoDriverHours.set(driverId, 0);  // Giornata estesa consumata
               livignoAdrExceptions.set(driverId, usedExceptions + 1);
               totalAdrExceptionsUsed++;
               totalSupplyFromLivigno++;
@@ -1927,10 +1928,10 @@ export async function calculateMaxCapacity(
             break;
           }
 
-          // PRIORITÀ 3: SUPPLY+SHUTTLE COMBO (10h con eccezione ADR)
-          // Driver Tirano può fare SUPPLY (6h) + SHUTTLE (4h) = 10h con eccezione
+          // PRIORITÀ 3: SUPPLY+SHUTTLE COMBO (9h45 con eccezione ADR)
+          // Driver Tirano può fare SUPPLY (5h45) + SHUTTLE (4h) = 9h45 con eccezione
           // Richiede: rimorchio vuoto, motrice, eccezione ADR disponibile
-          const HOURS_SUPPLY_SHUTTLE_COMBO = HOURS_SUPPLY + HOURS_SHUTTLE; // 6h + 4h = 10h
+          const HOURS_SUPPLY_SHUTTLE_COMBO = HOURS_SUPPLY + HOURS_SHUTTLE; // 5h45 + 4h = 9h45
           const tiranoUsedExceptions = tiranoAdrExceptions.get(driverId) || 0;
           if (emptyTrailers > 0 && emptyTanksAtTirano > 0 &&
               hoursLeft >= MAX_DAILY_HOURS && tiranoUsedExceptions < MAX_ADR_EXTENDED_PER_WEEK) {
@@ -1942,7 +1943,7 @@ export async function calculateMaxCapacity(
             // La motrice fa subito SHUTTLE e torna vuota
             emptyTanksAtTirano++;
 
-            tiranoDriverHours.set(driverId, 0); // Giornata finita (10h con eccezione)
+            tiranoDriverHours.set(driverId, 0); // Giornata estesa consumata
             tiranoAdrExceptions.set(driverId, tiranoUsedExceptions + 1);
             totalAdrExceptionsUsed++;
 
