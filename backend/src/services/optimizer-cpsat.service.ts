@@ -504,6 +504,7 @@ export async function convertSolverOutputToTrips(
   ctx: ConversionContext
 ): Promise<GeneratedTrip[]> {
   const trips: GeneratedTrip[] = [];
+  const driverSlots = new Map<string, { start: Date; end: Date }[]>();
   const tracker: ResourceTracker = {
     vehicleSlots: new Map(),
     trailerSlots: new Map(),
@@ -656,9 +657,6 @@ export async function convertSolverOutputToTrips(
     // Sort by slot to process in chronological order
     assignments.sort((a, b) => a.slot - b.slot);
 
-    // Track driver usage for this day
-    const driverUsage = new Map<string, number>(); // driverId -> last return slot
-
     // Process each assignment
     for (const assignment of assignments) {
       const { driverIndex, driverBase, task, slot } = assignment;
@@ -673,20 +671,15 @@ export async function convertSolverOutputToTrips(
       returnTime.setMinutes(returnTime.getMinutes() + taskDuration.minutes);
 
       // REFILL has no real driver assignment in solver output, but Trip requires a driverId.
-      // Use a stable fallback driver so conversion doesn't lose liters when D_T=0.
+      // For timeline readability, pick any currently available driver.
       let driver: Driver | null = null;
-      if (task === 'R') {
-        driver = ctx.tiranoDrivers[0] ?? ctx.livignoDrivers[0] ?? null;
-      } else {
+      if (task !== 'R') {
         const driverPool = driverBase === 'tirano' ? ctx.tiranoDrivers : ctx.livignoDrivers;
         if (driverIndex >= driverPool.length) {
           console.warn(`Driver index ${driverIndex} out of range for ${driverBase} pool`);
           continue;
         }
         driver = driverPool[driverIndex];
-      }
-      if (!driver) {
-        continue;
       }
 
       // Find available vehicle based on task type
@@ -826,10 +819,24 @@ export async function convertSolverOutputToTrips(
           break;
       }
 
+      if (task === 'R') {
+        driver = findAvailableDriver(
+          [...ctx.tiranoDrivers, ...ctx.livignoDrivers],
+          departureTime,
+          returnTime,
+          driverSlots
+        );
+      }
+
+      if (!driver) {
+        continue;
+      }
+
       if (!vehicle) {
         continue;
       }
 
+      reserveResource(driver.id, departureTime, returnTime, driverSlots);
       trips.push({
         date: departureTime,
         departureTime,
@@ -905,6 +912,20 @@ function findEmptyVehicleForRefill(
     const currentlyFull = tracker.vehicleTankState.tankFull.get(vehicle.id) ?? false;
     if (!currentlyFull && isResourceAvailable(vehicle.id, start, end, tracker.vehicleSlots)) {
       return vehicle;
+    }
+  }
+  return null;
+}
+
+function findAvailableDriver(
+  drivers: Driver[],
+  start: Date,
+  end: Date,
+  slots: Map<string, { start: Date; end: Date }[]>
+): Driver | null {
+  for (const driver of drivers) {
+    if (isResourceAvailable(driver.id, start, end, slots)) {
+      return driver;
     }
   }
   return null;
