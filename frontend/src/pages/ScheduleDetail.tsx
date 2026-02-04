@@ -645,11 +645,22 @@ export default function ScheduleDetail() {
         driverAvailability: driverAvailability.length > 0 ? driverAvailability : undefined
       });
       setOptimizerWarnings(result.warnings || []);
-      toast({
-        title: 'Ottimizzazione completata',
-        description: `Generati ${result.statistics.totalTrips} viaggi per ${formatLiters(result.statistics.totalLiters)}`,
-        variant: 'success',
-      });
+      if (result.success) {
+        toast({
+          title: 'Ottimizzazione completata',
+          description: `Generati ${result.statistics.totalTrips} viaggi per ${formatLiters(result.statistics.totalLiters)}`,
+          variant: 'success',
+        });
+      } else {
+        const unmet = result.statistics.unmetLiters || 0;
+        toast({
+          title: result.statistics.totalTrips > 0 ? 'Piano parziale generato' : 'Nessun turno generato',
+          description: result.statistics.totalTrips > 0
+            ? `Generati ${result.statistics.totalTrips} viaggi (${formatLiters(result.statistics.totalLiters)}). Mancano ${formatLiters(unmet)} al target.`
+            : 'Il solver non ha trovato un piano convertibile con i vincoli correnti.',
+          variant: 'warning' as any,
+        });
+      }
       if (result.warnings.length > 0) {
         toast({
           title: 'Attenzione',
