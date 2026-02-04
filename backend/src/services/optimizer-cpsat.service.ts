@@ -780,9 +780,8 @@ export async function convertSolverOutputToTrips(
           }
           break;
 
-        case 'R': // TRANSFER_TIRANO - Refill operation (no driver needed, yard operation)
-          // REFILL is a yard operation that doesn't create a Trip record
-          // It transfers fuel from a full trailer to an empty vehicle tank
+        case 'R': // TRANSFER_TIRANO - Refill operation (yard operation, 30 min)
+          // REFILL transfers fuel from a full trailer to an empty vehicle tank
           vehicle = findVehicleAtLocation(
             ctx.tiranoVehicles,
             ctx.locations.tirano.id,
@@ -794,16 +793,23 @@ export async function convertSolverOutputToTrips(
           if (vehicle) {
             const trailerId = findFullTrailer(tracker, departureTime, returnTime, ctx.trailers);
             if (trailerId) {
-              // Update state only, don't create a trip
+              // Update state
               tracker.trailerState.atTiranoFull.delete(trailerId);
               tracker.pendingEmptyTrailers.set(trailerId, returnTime);
-              // Vehicle tank becomes full IMMEDIATELY (yard operation is instant)
+              // Vehicle tank becomes full
               tracker.vehicleTankState.tankFull.set(vehicle.id, true);
               reserveResource(trailerId, departureTime, returnTime, tracker.trailerSlots);
+              // Track trailer in trip (shows which trailer was emptied)
+              tripTrailers = [{
+                trailerId,
+                litersLoaded: LITERS_PER_UNIT,
+                dropOffLocationId: ctx.locations.tirano.id,
+                isPickup: true, // pickup from trailer = emptying it
+              }];
             }
+            reserveResource(vehicle.id, departureTime, returnTime, tracker.vehicleSlots);
           }
-          // Skip trip creation for REFILL
-          continue;
+          break;
       }
 
       if (!vehicle) {
