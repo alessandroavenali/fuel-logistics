@@ -140,7 +140,35 @@ fuel-logistics/
 
 ## Logica di Ottimizzazione
 
-L'algoritmo di ottimizzazione:
+### CP-SAT Solver (Default)
+
+Il sistema usa **OR-Tools CP-SAT** (Constraint Programming - Satisfiability) per l'ottimizzazione:
+
+- Modellazione time-indexed a slot da 15 minuti
+- Vincoli no-overlap per driver
+- Bilanci stock/flotta per ogni slot
+- Limiti ADR completi (giornaliero, settimanale, bisettimanale)
+- Finestra ingresso Livigno (08:00–18:30)
+
+**Prerequisiti**: Python 3 con `ortools` installato sul server.
+
+```bash
+pip3 install ortools
+```
+
+### API Toggle
+
+```bash
+# CP-SAT (default)
+POST /api/schedules/:id/optimize
+
+# Legacy (fallback)
+POST /api/schedules/:id/optimize?optimizer=legacy
+```
+
+### Legacy Optimizer
+
+L'algoritmo legacy (fallback):
 1. Traccia lo stato delle rimorchi in tutte le location (Tirano, Livigno, Milano)
 2. Assegna i viaggi ottimali in base alle risorse disponibili:
    - Driver Tirano: SUPPLY, SHUTTLE, o FULL_ROUND

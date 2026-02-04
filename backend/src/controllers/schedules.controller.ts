@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { createScheduleSchema, updateScheduleSchema, createTripSchema, updateTripSchema } from '../utils/validators.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { optimizeSchedule, calculateMaxCapacity } from '../services/optimizer.service.js';
+import { runCPSATOptimizer, calculateMaxCapacityCPSAT } from '../services/optimizer-cpsat.service.js';
 import { validateTripsForSchedule } from '../services/adrValidator.service.js';
 
 export async function getSchedules(req: Request, res: Response, next: NextFunction) {
@@ -231,6 +232,7 @@ export async function calculateMaxCapacityHandler(req: Request, res: Response, n
   try {
     const prisma: PrismaClient = (req as any).prisma;
     const { startDate, endDate, initialStates, vehicleStates, driverAvailability, includeWeekend } = req.body;
+    const optimizer = (req.query.optimizer as string) || 'cpsat';
 
     console.log('[calculateMax] Request:', {
       startDate,
@@ -239,20 +241,26 @@ export async function calculateMaxCapacityHandler(req: Request, res: Response, n
       vehicleStates: vehicleStates?.length,
       driverAvailability: driverAvailability?.length,
       includeWeekend,
+      optimizer,
     });
 
     if (!startDate || !endDate) {
       throw new AppError(400, 'startDate and endDate are required');
     }
 
-    const result = await calculateMaxCapacity(prisma, {
+    const input = {
       startDate,
       endDate,
       initialStates,
       vehicleStates,
       driverAvailability,
       includeWeekend,
-    });
+    };
+
+    // Use CP-SAT optimizer by default, fall back to legacy if specified
+    const result = optimizer === 'legacy'
+      ? await calculateMaxCapacity(prisma, input)
+      : await calculateMaxCapacityCPSAT(prisma, input);
 
     console.log('[calculateMax] Result:', result);
     res.json(result);
@@ -267,10 +275,14 @@ export async function optimizeScheduleHandler(req: Request, res: Response, next:
     const prisma: PrismaClient = (req as any).prisma;
     const { id } = req.params;
     const { driverAvailability } = req.body;
+    const optimizer = (req.query.optimizer as string) || 'cpsat';
 
-    console.log('[optimize] Schedule:', id, 'DriverAvailability:', driverAvailability?.length || 0);
+    console.log('[optimize] Schedule:', id, 'DriverAvailability:', driverAvailability?.length || 0, 'Optimizer:', optimizer);
 
-    const result = await optimizeSchedule(prisma, id, driverAvailability);
+    // Use CP-SAT optimizer by default, fall back to legacy if specified
+    const result = optimizer === 'legacy'
+      ? await optimizeSchedule(prisma, id, driverAvailability)
+      : await runCPSATOptimizer(prisma, id, driverAvailability);
 
     res.json(result);
   } catch (error) {

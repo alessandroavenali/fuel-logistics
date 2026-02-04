@@ -143,6 +143,11 @@ git push origin main
 
 ## Cronologia Recente
 
+- **2026-02-04**: Integrazione CP-SAT solver con frontend
+  - Nuova funzione `convertSolverOutputToTrips()` per mapping solver→Trip
+  - Nuova funzione `runCPSATOptimizer()` come entry point principale
+  - CP-SAT diventa optimizer di default, legacy disponibile con `?optimizer=legacy`
+  - Nessuna migrazione DB richiesta
 - **2026-02-03**: Ottimizzazione ADR multi-giorno
   - Fix: emptyTanksAtTirano non contava correttamente motrici Livigno
   - Fix: calcolo SUPPLY+SHUTTLE trigger (1 risorsa = 1 SHUTTLE)
@@ -155,9 +160,53 @@ git push origin main
 - **2026-02-03**: Deploy Docker su flipr-nue con security isolation
 - **2026-02-01**: Feature stato iniziale eccezioni ADR
 
-## Algoritmo Ottimizzazione (v2)
+## Algoritmo Ottimizzazione
 
-### Fasi giornaliere
+### Dual-System: CP-SAT (default) + Legacy (fallback)
+
+Il sistema supporta due optimizer:
+
+| Optimizer | Quando usarlo | API |
+|-----------|---------------|-----|
+| **CP-SAT** (default) | Produzione, risultati ottimali | `?optimizer=cpsat` o nessun parametro |
+| **Legacy** | Fallback, debug, confronto | `?optimizer=legacy` |
+
+### CP-SAT Solver (OR-Tools)
+
+**File**: `backend/src/solver/solver.py` + `backend/src/services/optimizer-cpsat.service.ts`
+
+Il solver CP-SAT usa constraint programming per:
+- Modellazione time-indexed a slot da 15 min
+- Vincoli no-overlap per driver
+- Bilanci stock/flotta per ogni slot
+- Limiti ADR (giornaliero/settimanale/bisettimanale)
+- Pausa 4h30→45' con finestra mobile
+- Finestra ingresso Livigno (08:00–18:30)
+
+**Mapping Task → TripType**:
+
+| Task | TripType | Slot | Minuti |
+|------|----------|------|--------|
+| S | SUPPLY_MILANO | 23 | 345 |
+| U | SHUTTLE_LIVIGNO | 16 | 240 |
+| V | SHUTTLE_FROM_LIVIGNO | 18 | 270 |
+| A | SUPPLY_FROM_LIVIGNO | 39 | 585 |
+| R | TRANSFER_TIRANO | 2 | 30 |
+
+**Flusso dati**:
+```
+runCPSATOptimizer(scheduleId)
+  → Build SolverInput from DB
+  → Call Python solver via stdin/stdout
+  → convertSolverOutputToTrips()
+  → Save Trip records to DB
+```
+
+### Legacy Optimizer (v2)
+
+**File**: `backend/src/services/optimizer.service.ts`
+
+Algoritmo greedy con fasi giornaliere:
 
 1. **STEP 1 - SUPPLY+SHUTTLE combo**: driver Tirano senza risorse iniziali fanno combo (10h, 1 ADR)
 2. **STEP 2 - SUPPLY standard**: driver Tirano rimanenti producono risorse per domani (6h, 0 ADR)

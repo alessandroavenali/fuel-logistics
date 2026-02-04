@@ -2,6 +2,72 @@
 
 ## [Unreleased]
 
+### Added - CP-SAT Solver Integration (2026-02-04)
+
+Integrato il solver OR-Tools CP-SAT con il frontend. Il solver Python produce schedule ottimali che vengono convertiti in Trip objects visualizzabili nella timeline.
+
+#### Architettura
+
+```
+Frontend DriverTimeline
+        ↓
+Controller (schedules.controller.ts)
+        ↓
+runCPSATOptimizer() / calculateMaxCapacityCPSAT()
+        ↓
+runCPSATSolver() → Python CP-SAT (solver.py)
+        ↓
+convertSolverOutputToTrips() → GeneratedTrip[]
+        ↓
+Database (Trip records)
+```
+
+#### Nuove Funzioni in `optimizer-cpsat.service.ts`
+
+| Funzione | Descrizione |
+|----------|-------------|
+| `convertSolverOutputToTrips()` | Converte output astratto del solver (driver index + slot) in Trip concreti con ID reali |
+| `runCPSATOptimizer()` | Entry point: carica dati DB, chiama solver, converte output, salva trips |
+| `calculateMaxCapacityCPSAT()` | Calcola capacità massima usando CP-SAT invece dell'algoritmo greedy |
+
+#### Mapping Task → TripType
+
+| CP-SAT Task | TripType | Durata (slot) | Durata (min) |
+|-------------|----------|---------------|--------------|
+| S | SUPPLY_MILANO | 23 | 345 |
+| U | SHUTTLE_LIVIGNO | 16 | 240 |
+| V | SHUTTLE_FROM_LIVIGNO | 18 | 270 |
+| A | SUPPLY_FROM_LIVIGNO | 39 | 585 |
+| R | TRANSFER_TIRANO | 2 | 30 |
+
+#### API Toggle
+
+CP-SAT è ora il default. Per usare l'algoritmo legacy:
+
+```
+POST /api/schedules/:id/optimize?optimizer=legacy
+POST /api/schedules/calculate-max?optimizer=legacy
+```
+
+#### Resource Assignment
+
+La conversione solver→trips include:
+- Mapping driver index (T0, T1, L0) a ID reali dal DB
+- Conversione slot (15 min) a Date objects (slot 0 = 06:00)
+- Assegnazione veicoli in base a location e stato tank
+- Assegnazione rimorchi con tracking stato pieno/vuoto
+- Gestione pending resources (rimorchi che arriveranno pieni/vuoti)
+
+#### File Modificati
+
+**Backend**:
+- `src/services/optimizer-cpsat.service.ts` - Nuove funzioni conversione + entry point
+- `src/controllers/schedules.controller.ts` - Toggle optimizer, CP-SAT come default
+
+**Nessuna migrazione richiesta** - solo codice TypeScript.
+
+---
+
 ### Changed - Terminologia: cisterne → rimorchi (2026-02-03)
 
 Standardizzata la terminologia in tutto il codebase:
