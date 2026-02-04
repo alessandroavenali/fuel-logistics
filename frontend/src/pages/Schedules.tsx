@@ -335,10 +335,14 @@ export default function Schedules() {
 
   const onSubmit = async (data: ScheduleFormData) => {
     try {
+      // endDate deve essere a fine giornata (23:59:59) per includere l'ultimo giorno
+      const endDateObj = new Date(data.endDate);
+      endDateObj.setHours(23, 59, 59, 999);
+
       const payload = {
         ...data,
         startDate: new Date(data.startDate).toISOString(),
-        endDate: new Date(data.endDate).toISOString(),
+        endDate: endDateObj.toISOString(),
         initialStates: initialStates.length > 0 ? initialStates : undefined,
         vehicleStates: vehicleStates.length > 0 ? vehicleStates : undefined,
         includeWeekend,
@@ -384,9 +388,13 @@ export default function Schedules() {
     }
 
     try {
+      // endDate deve essere a fine giornata (23:59:59) per includere l'ultimo giorno
+      const endDateObj = new Date(formValues.endDate);
+      endDateObj.setHours(23, 59, 59, 999);
+
       const result = await calculateMaxMutation.mutateAsync({
         startDate: new Date(formValues.startDate).toISOString(),
-        endDate: new Date(formValues.endDate).toISOString(),
+        endDate: endDateObj.toISOString(),
         initialStates: initialStates.length > 0 ? initialStates : undefined,
         vehicleStates: vehicleStates.length > 0 ? vehicleStates : undefined,
         driverAvailability: driverAvailabilityApi,
