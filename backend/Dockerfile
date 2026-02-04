@@ -24,8 +24,14 @@ RUN npm run build
 # Production stage
 FROM node:20-slim AS production
 
-# Install OpenSSL for Prisma
-RUN apt-get update && apt-get install -y openssl ca-certificates && rm -rf /var/lib/apt/lists/*
+# Install OpenSSL for Prisma + Python3 for CP-SAT solver
+RUN apt-get update && apt-get install -y \
+    openssl \
+    ca-certificates \
+    python3 \
+    python3-pip \
+    && pip3 install --break-system-packages ortools \
+    && rm -rf /var/lib/apt/lists/*
 
 # Security: create non-root user
 RUN groupadd -g 1001 nodejs && \
@@ -43,6 +49,9 @@ RUN npm ci --omit=dev && \
 
 # Copy built application
 COPY --from=builder /app/dist ./dist
+
+# Copy Python solver
+COPY src/solver ./dist/solver
 
 # Security: change ownership and switch to non-root user
 RUN chown -R nodejs:nodejs /app
