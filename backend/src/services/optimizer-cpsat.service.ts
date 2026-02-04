@@ -1644,7 +1644,9 @@ export async function calculateMaxCapacityCPSAT(
     numTractors: tiranoVehicles.length,
     initialFullTrailers,
     initialFullTractors,
-    timeLimitSeconds: 60,
+    // Keep MAX endpoint below common reverse-proxy timeouts.
+    // We prefer returning a FEASIBLE plan over intermittent 504s.
+    timeLimitSeconds: 45,
     includeWeekend: hasExplicitAvailability ? true : (input.includeWeekend ?? false),
   });
 
