@@ -479,6 +479,13 @@ def solve(data: Dict) -> SolveResult:
                     starts.append({"task": "A", "slot": t})
             drivers_L.append({"starts": starts})
 
+        # Collect REFILL starts (not assigned to specific driver)
+        refill_starts = []
+        for t in range(slots_per_day):
+            r_val = int(solver.value(R_start[d][t]))
+            for _ in range(r_val):  # Multiple REFILLs can happen at same slot
+                refill_starts.append({"task": "R", "slot": t})
+
         days_out.append(
             {
                 "date": days[d]["date"],
@@ -491,6 +498,7 @@ def solve(data: Dict) -> SolveResult:
                 "R": r_count,
                 "drivers_T": drivers_T,
                 "drivers_L": drivers_L,
+                "refill_starts": refill_starts,
                 "FT_start": int(solver.value(FT[d][0])),
                 "ET_start": int(solver.value(ET[d][0])),
                 "Tf_start": int(solver.value(Tf[d][0])),

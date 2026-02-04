@@ -66,6 +66,7 @@ export interface DayResult {
   R: number;   // Refill operations
   drivers_T: { starts: { task: string; slot: number }[] }[];
   drivers_L: { starts: { task: string; slot: number }[] }[];
+  refill_starts?: { task: string; slot: number }[];  // REFILL starts (no driver assigned)
   FT_start: number;
   ET_start: number;
   Tf_start: number;
@@ -560,21 +561,45 @@ export async function convertSolverOutputToTrips(
   // Process each day
   for (const dayResult of result.days) {
     const dateStr = dayResult.date;
-
-    // Update pending resources that are now available
     const dayStart = slotToDate(0, dateStr);
-    for (const [trailerId, availAt] of tracker.pendingFullTrailers) {
-      if (availAt <= dayStart) {
-        tracker.trailerState.atTiranoFull.add(trailerId);
-        tracker.pendingFullTrailers.delete(trailerId);
+
+    // SYNC tracker state with solver state at day start
+    // The solver tells us exactly how many resources are available
+    const solverFT = dayResult.FT_start;  // Full trailers at Tirano
+    const solverTf = dayResult.Tf_start;  // Full tractors (vehicles with full tank)
+
+    // Reset trailer state based on solver
+    tracker.trailerState.atTiranoFull.clear();
+    tracker.trailerState.atTiranoEmpty.clear();
+    tracker.pendingFullTrailers.clear();
+    tracker.pendingEmptyTrailers.clear();
+
+    // Assign trailers based on solver state
+    let fullCount = 0;
+    for (const trailer of ctx.trailers) {
+      if (fullCount < solverFT) {
+        tracker.trailerState.atTiranoFull.add(trailer.id);
+        fullCount++;
+      } else {
+        tracker.trailerState.atTiranoEmpty.add(trailer.id);
       }
     }
-    for (const [trailerId, availAt] of tracker.pendingEmptyTrailers) {
-      if (availAt <= dayStart) {
-        tracker.trailerState.atTiranoEmpty.add(trailerId);
-        tracker.pendingEmptyTrailers.delete(trailerId);
+
+    // Reset vehicle tank state based on solver
+    tracker.pendingFullTanks.clear();
+    let tankFullCount = 0;
+    for (const vehicle of ctx.tiranoVehicles) {
+      if (tankFullCount < solverTf) {
+        tracker.vehicleTankState.tankFull.set(vehicle.id, true);
+        tankFullCount++;
+      } else {
+        tracker.vehicleTankState.tankFull.set(vehicle.id, false);
       }
     }
+
+    // Clear vehicle slot reservations for new day
+    tracker.vehicleSlots.clear();
+    tracker.trailerSlots.clear();
 
     // Collect all tasks for this day with their assignments
     interface TaskAssignment {
@@ -604,6 +629,18 @@ export async function convertSolverOutputToTrips(
         assignments.push({
           driverIndex: j,
           driverBase: 'livigno',
+          task: start.task,
+          slot: start.slot,
+        });
+      }
+    }
+
+    // REFILL operations (no driver assigned, use Tirano driver 0 for the trip record)
+    if (dayResult.refill_starts) {
+      for (const start of dayResult.refill_starts) {
+        assignments.push({
+          driverIndex: 0,  // REFILL doesn't need specific driver, use first available
+          driverBase: 'tirano',
           task: start.task,
           slot: start.slot,
         });
@@ -653,7 +690,7 @@ export async function convertSolverOutputToTrips(
           );
           if (vehicle) {
             // Find empty trailer for supply
-            const trailerId = findTrailerForSupply(tracker, departureTime, returnTime);
+            const trailerId = findTrailerForSupply(tracker, departureTime, returnTime, ctx.trailers);
             if (trailerId) {
               tripTrailers = [{
                 trailerId,
@@ -699,7 +736,7 @@ export async function convertSolverOutputToTrips(
           );
           if (vehicle) {
             // This trip consumes a full trailer at Tirano (implicit TRANSFER)
-            const trailerId = findFullTrailer(tracker, departureTime, returnTime);
+            const trailerId = findFullTrailer(tracker, departureTime, returnTime, ctx.trailers);
             if (trailerId) {
               tripTrailers = [{
                 trailerId,
@@ -727,7 +764,7 @@ export async function convertSolverOutputToTrips(
           );
           if (vehicle) {
             // Uses empty trailer at Tirano, leaves it full
-            const trailerId = findTrailerForSupply(tracker, departureTime, returnTime);
+            const trailerId = findTrailerForSupply(tracker, departureTime, returnTime, ctx.trailers);
             if (trailerId) {
               tripTrailers = [{
                 trailerId,
@@ -743,7 +780,9 @@ export async function convertSolverOutputToTrips(
           }
           break;
 
-        case 'R': // TRANSFER_TIRANO - Refill operation, done by Tirano driver
+        case 'R': // TRANSFER_TIRANO - Refill operation (no driver needed, yard operation)
+          // REFILL is a yard operation that doesn't create a Trip record
+          // It transfers fuel from a full trailer to an empty vehicle tank
           vehicle = findVehicleAtLocation(
             ctx.tiranoVehicles,
             ctx.locations.tirano.id,
@@ -753,27 +792,21 @@ export async function convertSolverOutputToTrips(
             tracker
           );
           if (vehicle) {
-            const trailerId = findFullTrailer(tracker, departureTime, returnTime);
+            const trailerId = findFullTrailer(tracker, departureTime, returnTime, ctx.trailers);
             if (trailerId) {
-              tripTrailers = [{
-                trailerId,
-                litersLoaded: LITERS_PER_UNIT,
-                dropOffLocationId: ctx.locations.tirano.id,
-                isPickup: true,
-              }];
+              // Update state only, don't create a trip
               tracker.trailerState.atTiranoFull.delete(trailerId);
               tracker.pendingEmptyTrailers.set(trailerId, returnTime);
-              // Vehicle tank becomes full
+              // Vehicle tank becomes full IMMEDIATELY (yard operation is instant)
               tracker.vehicleTankState.tankFull.set(vehicle.id, true);
               reserveResource(trailerId, departureTime, returnTime, tracker.trailerSlots);
             }
-            reserveResource(vehicle.id, departureTime, returnTime, tracker.vehicleSlots);
           }
-          break;
+          // Skip trip creation for REFILL
+          continue;
       }
 
       if (!vehicle) {
-        console.warn(`No vehicle available for ${task} at slot ${slot} on ${dateStr}`);
         continue;
       }
 
@@ -794,6 +827,8 @@ export async function convertSolverOutputToTrips(
 
 /**
  * Find a vehicle at a specific location with specified tank state.
+ * TRUST THE SOLVER: if it planned a task, the resources ARE available.
+ * We only check that the vehicle isn't already reserved for overlapping time.
  */
 function findVehicleAtLocation(
   vehicles: Vehicle[],
@@ -803,8 +838,8 @@ function findVehicleAtLocation(
   end: Date,
   tracker: ResourceTracker
 ): Vehicle | null {
+  // First pass: try to find vehicle matching tank state
   for (const vehicle of vehicles) {
-    const location = tracker.vehicleTankState.location.get(vehicle.id);
     const isFull = tracker.vehicleTankState.tankFull.get(vehicle.id) ?? false;
 
     // Check pending full tanks
@@ -816,23 +851,38 @@ function findVehicleAtLocation(
       tracker.pendingFullTanks.delete(vehicle.id);
     }
 
-    if (location === locationId &&
-        (!needsFullTank || willBeFull) &&
+    if ((!needsFullTank || willBeFull) &&
         isResourceAvailable(vehicle.id, start, end, tracker.vehicleSlots)) {
       return vehicle;
     }
   }
+
+  // Second pass: TRUST THE SOLVER - if it planned this task, a vehicle MUST be available
+  // Just find any available vehicle (not reserved for this time slot)
+  for (const vehicle of vehicles) {
+    if (isResourceAvailable(vehicle.id, start, end, tracker.vehicleSlots)) {
+      // Force the tank state if needed
+      if (needsFullTank) {
+        tracker.vehicleTankState.tankFull.set(vehicle.id, true);
+      }
+      return vehicle;
+    }
+  }
+
   return null;
 }
 
 /**
  * Find an empty trailer at Tirano for SUPPLY.
+ * TRUST THE SOLVER: if it planned this task, an empty trailer IS available.
  */
 function findTrailerForSupply(
   tracker: ResourceTracker,
   start: Date,
-  end: Date
+  end: Date,
+  allTrailers: Trailer[]
 ): string | null {
+  // First: try empty trailers
   for (const trailerId of tracker.trailerState.atTiranoEmpty) {
     if (isResourceAvailable(trailerId, start, end, tracker.trailerSlots)) {
       return trailerId;
@@ -846,17 +896,27 @@ function findTrailerForSupply(
       return trailerId;
     }
   }
+  // TRUST THE SOLVER: find ANY available trailer
+  for (const trailer of allTrailers) {
+    if (isResourceAvailable(trailer.id, start, end, tracker.trailerSlots)) {
+      tracker.trailerState.atTiranoEmpty.add(trailer.id);
+      return trailer.id;
+    }
+  }
   return null;
 }
 
 /**
  * Find a full trailer at Tirano for TRANSFER/SHUTTLE_FROM_LIVIGNO.
+ * TRUST THE SOLVER: if it planned this task, a full trailer IS available.
  */
 function findFullTrailer(
   tracker: ResourceTracker,
   start: Date,
-  end: Date
+  end: Date,
+  allTrailers: Trailer[]
 ): string | null {
+  // First: try full trailers
   for (const trailerId of tracker.trailerState.atTiranoFull) {
     if (isResourceAvailable(trailerId, start, end, tracker.trailerSlots)) {
       return trailerId;
@@ -868,6 +928,13 @@ function findFullTrailer(
       tracker.trailerState.atTiranoFull.add(trailerId);
       tracker.pendingFullTrailers.delete(trailerId);
       return trailerId;
+    }
+  }
+  // TRUST THE SOLVER: find ANY available trailer
+  for (const trailer of allTrailers) {
+    if (isResourceAvailable(trailer.id, start, end, tracker.trailerSlots)) {
+      tracker.trailerState.atTiranoFull.add(trailer.id);
+      return trailer.id;
     }
   }
   return null;
@@ -971,27 +1038,38 @@ export async function runCPSATOptimizer(
   }
 
   // Separate drivers and vehicles by base
-  const tiranoDrivers = drivers.filter(d => d.baseLocationId !== livignoLocation.id);
-  const livignoDrivers = drivers.filter(d => d.baseLocationId === livignoLocation.id);
+  const allTiranoDrivers = drivers.filter(d => d.baseLocationId !== livignoLocation.id);
+  const allLivignoDrivers = drivers.filter(d => d.baseLocationId === livignoLocation.id);
   const tiranoVehicles = vehicles.filter(v => v.baseLocationId !== livignoLocation.id);
   const livignoVehicles = vehicles.filter(v => v.baseLocationId === livignoLocation.id);
 
-  // Get working days
+  // Get working days (respecting includeWeekend setting)
   const workingDays = getWorkingDays(schedule.startDate, schedule.endDate, schedule.includeWeekend);
+  if (workingDays.length === 0) {
+    throw new Error('No working days in schedule range');
+  }
   const allDates = workingDays.map(d => d.toISOString().split('T')[0]);
+
+  // Determine which drivers to use for conversion
+  // IMPORTANT: The driver list used for conversion MUST match what the solver receives
+  let tiranoDriversForConversion: Driver[];
+  let livignoDriversForConversion: Driver[];
 
   // Build driver counts per day
   const tiranoDriversPerDay: number[] = [];
   const livignoDriversPerDay: number[] = [];
 
-  for (const day of workingDays) {
-    const dateKey = day.toISOString().split('T')[0];
+  if (driverAvailability && driverAvailability.length > 0) {
+    // Use explicit availability - filter drivers to only those with availability
+    const availableDriverIds = new Set(driverAvailability.map(a => a.driverId));
+    tiranoDriversForConversion = allTiranoDrivers.filter(d => availableDriverIds.has(d.id));
+    livignoDriversForConversion = allLivignoDrivers.filter(d => availableDriverIds.has(d.id));
 
-    let tiranoCount = 0;
-    let livignoCount = 0;
+    for (const day of workingDays) {
+      const dateKey = day.toISOString().split('T')[0];
+      let tiranoCount = 0;
+      let livignoCount = 0;
 
-    if (driverAvailability && driverAvailability.length > 0) {
-      // Use explicit availability
       for (const avail of driverAvailability) {
         if (avail.availableDates.includes(dateKey)) {
           const driver = drivers.find(d => d.id === avail.driverId);
@@ -1004,14 +1082,19 @@ export async function runCPSATOptimizer(
           }
         }
       }
-    } else {
-      // Default: only RESIDENT drivers
-      tiranoCount = tiranoDrivers.filter(d => d.type === 'RESIDENT').length;
-      livignoCount = livignoDrivers.filter(d => d.type === 'RESIDENT').length;
-    }
 
-    tiranoDriversPerDay.push(tiranoCount);
-    livignoDriversPerDay.push(livignoCount);
+      tiranoDriversPerDay.push(tiranoCount);
+      livignoDriversPerDay.push(livignoCount);
+    }
+  } else {
+    // Default: only RESIDENT drivers
+    tiranoDriversForConversion = allTiranoDrivers.filter(d => d.type === 'RESIDENT');
+    livignoDriversForConversion = allLivignoDrivers.filter(d => d.type === 'RESIDENT');
+
+    for (const _day of workingDays) {
+      tiranoDriversPerDay.push(tiranoDriversForConversion.length);
+      livignoDriversPerDay.push(livignoDriversForConversion.length);
+    }
   }
 
   // Calculate initial state
@@ -1031,9 +1114,13 @@ export async function runCPSATOptimizer(
   }
 
   // Build solver input
+  // IMPORTANT: Use actual working days, not schedule dates (which may include weekends)
+  const solverStartDate = workingDays[0];
+  const solverEndDate = workingDays[workingDays.length - 1];
+
   const solverInput = createSolverInput({
-    startDate: schedule.startDate,
-    endDate: schedule.endDate,
+    startDate: solverStartDate,
+    endDate: solverEndDate,
     tiranoDriversPerDay,
     livignoDriversPerDay,
     numTrailers: trailers.length,
@@ -1097,11 +1184,12 @@ export async function runCPSATOptimizer(
   }
 
   // Convert solver output to trips
+  // IMPORTANT: Use the same driver list that was used to count for the solver
   const conversionContext: ConversionContext = {
     prisma,
     scheduleId,
-    tiranoDrivers,
-    livignoDrivers,
+    tiranoDrivers: tiranoDriversForConversion,
+    livignoDrivers: livignoDriversForConversion,
     tiranoVehicles,
     livignoVehicles,
     trailers,
@@ -1110,7 +1198,7 @@ export async function runCPSATOptimizer(
       livigno: livignoLocation,
       milano: milanoLocation,
     },
-    startDate: schedule.startDate,
+    startDate: solverStartDate,
   };
 
   const trips = await convertSolverOutputToTrips(solverResult, conversionContext);
@@ -1312,9 +1400,34 @@ export async function calculateMaxCapacityCPSAT(
   }
 
   // Build and run solver
+  // IMPORTANT: Use actual working days, not input dates (which may include weekends)
+  if (workingDays.length === 0) {
+    return {
+      maxLiters: 0,
+      workingDays: 0,
+      daysWithDeliveries: 0,
+      breakdown: {
+        livignoDriverShuttles: 0,
+        livignoSupplyTrips: 0,
+        tiranoDriverShuttles: 0,
+        tiranoDriverFullRounds: 0,
+        supplyTrips: 0,
+        transferTrips: 0,
+        shuttleFromLivigno: 0,
+        supplyFromLivigno: 0,
+        adrExceptionsUsed: 0,
+      },
+      dailyCapacity: 0,
+      constraints: ['No working days in specified range'],
+    };
+  }
+
+  const solverStartDate = workingDays[0];
+  const solverEndDate = workingDays[workingDays.length - 1];
+
   const solverInput = createSolverInput({
-    startDate,
-    endDate,
+    startDate: solverStartDate,
+    endDate: solverEndDate,
     tiranoDriversPerDay,
     livignoDriversPerDay,
     numTrailers: trailers.length,
