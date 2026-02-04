@@ -43,6 +43,20 @@ export interface ValidationResult {
   warnings: AdrWarning[];
 }
 
+// Driving-time estimate per trip type (hours), aligned with solver drive profiles.
+const DRIVING_HOURS_BY_TRIP_TYPE: Record<string, number> = {
+  SHUTTLE_LIVIGNO: 3.5,       // 210 min
+  SUPPLY_MILANO: 5,           // 300 min
+  FULL_ROUND: 8.5,            // 510 min
+  TRANSFER_TIRANO: 0,         // yard operation
+  SHUTTLE_FROM_LIVIGNO: 3.5,  // 210 min
+  SUPPLY_FROM_LIVIGNO: 8.5,   // 510 min
+};
+
+function estimateTripDrivingHours(trip: Trip): number {
+  return DRIVING_HOURS_BY_TRIP_TYPE[trip.tripType] ?? 0;
+}
+
 export async function validateTripsForSchedule(
   prisma: PrismaClient,
   scheduleId: string
@@ -202,9 +216,11 @@ function validateDailyDrivingHours(
 
   // Check each day
   for (const [dateKey, dayTrips] of tripsByDate) {
-    // Estimate driving hours for this day's trips
-    // Assuming average trip duration of 8 hours (Milano-Tirano-Livigno round trip)
-    const estimatedHours = dayTrips.length * 8;
+    // Estimate driving hours from trip types (aligned with solver model).
+    const estimatedHours = dayTrips.reduce(
+      (sum, trip) => sum + estimateTripDrivingHours(trip),
+      0
+    );
 
     // Get existing hours from logs
     const existingLog = existingLogs.find(
@@ -287,7 +303,10 @@ async function validateWeeklyDrivingHours(
 
     // Count trips in this week
     const tripsInWeek = trips.filter((t) => getWeekNumber(t.date) === weekNum);
-    const estimatedHours = tripsInWeek.length * 8;
+    const estimatedHours = tripsInWeek.reduce(
+      (sum, trip) => sum + estimateTripDrivingHours(trip),
+      0
+    );
 
     const totalHours = existingHours + estimatedHours;
 
