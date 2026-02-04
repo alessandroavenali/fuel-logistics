@@ -1,5 +1,11 @@
 # Fuel Logistics - Project Notes
 
+## Regole per Claude
+
+- **MAI mettere in discussione l'operato dell'utente**. Se l'utente segnala un bug o un risultato inatteso, il problema è nel codice, non nell'utente.
+- Quando l'utente dice che qualcosa non funziona, cercare il bug nel codice invece di suggerire che l'utente abbia sbagliato input.
+- Fare test approfonditi e reali, non dire "tutto OK" senza verificare davvero.
+
 ## Stato del Progetto
 
 Sistema di ottimizzazione logistica per trasporto carburante Milano → Tirano → Livigno.
