@@ -407,6 +407,23 @@ export function DriverTimeline({
                             left: `${left}px`,
                             width: `${width}px`,
                           }}
+                          title={`${tripTypeColors[tripType]?.label || tripType} • ${trip.vehicle?.plate || 'N/A'} • ${trip.driver?.name || 'N/A'}`}
+                          onPointerEnter={(event) => {
+                            const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+                            updateTooltip(trip, colors, rect);
+                          }}
+                          onPointerMove={(event) => {
+                            const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+                            updateTooltip(trip, colors, rect);
+                          }}
+                          onPointerLeave={() => {
+                            if (tooltipHideTimeoutRef.current) {
+                              window.clearTimeout(tooltipHideTimeoutRef.current);
+                            }
+                            tooltipHideTimeoutRef.current = window.setTimeout(() => {
+                              setTooltipTrip(null);
+                            }, 80);
+                          }}
                           onMouseEnter={(event) => {
                             const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
                             updateTooltip(trip, colors, rect);
