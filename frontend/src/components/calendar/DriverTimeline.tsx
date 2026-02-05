@@ -101,6 +101,20 @@ export function DriverTimeline({
   } | null>(null);
   const tooltipHideTimeoutRef = useRef<number | null>(null);
 
+  const hideTooltip = (delayMs = 0) => {
+    if (tooltipHideTimeoutRef.current) {
+      window.clearTimeout(tooltipHideTimeoutRef.current);
+    }
+    if (delayMs <= 0) {
+      setTooltipTrip(null);
+      tooltipHideTimeoutRef.current = null;
+      return;
+    }
+    tooltipHideTimeoutRef.current = window.setTimeout(() => {
+      setTooltipTrip(null);
+    }, delayMs);
+  };
+
   const updateTooltip = (trip: Trip, colors: { bg: string; border: string; text: string }, rect: DOMRect) => {
     const timelineForTooltip = calculateTimeline(trip);
     if (tooltipHideTimeoutRef.current) {
@@ -307,7 +321,7 @@ export function DriverTimeline({
       </div>
 
       {/* Timeline container */}
-      <div className="flex-1 overflow-hidden border rounded-lg bg-card">
+      <div className="flex-1 overflow-hidden border rounded-lg bg-card" onMouseLeave={() => hideTooltip(80)}>
         <div className="flex h-full">
           {/* Driver names column (fixed) */}
           <div className="w-32 flex-shrink-0 border-r bg-muted/30">
@@ -332,7 +346,7 @@ export function DriverTimeline({
           </div>
 
           {/* Timeline scrollable area */}
-          <div className="flex-1 overflow-x-auto">
+          <div className="flex-1 overflow-x-auto" onScroll={() => hideTooltip(80)}>
             <div style={{ minWidth: timelineWidth }}>
               {/* Time header */}
               <div className="h-8 border-b flex bg-muted/20 sticky top-0">
@@ -428,12 +442,7 @@ export function DriverTimeline({
                               updateTooltip(trip, colors, rect);
                             }}
                             onPointerLeave={() => {
-                              if (tooltipHideTimeoutRef.current) {
-                                window.clearTimeout(tooltipHideTimeoutRef.current);
-                              }
-                              tooltipHideTimeoutRef.current = window.setTimeout(() => {
-                                setTooltipTrip(null);
-                              }, 80);
+                              hideTooltip(80);
                             }}
                             onMouseEnter={(event) => {
                               const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
@@ -444,23 +453,13 @@ export function DriverTimeline({
                               updateTooltip(trip, colors, rect);
                             }}
                             onMouseLeave={() => {
-                              if (tooltipHideTimeoutRef.current) {
-                                window.clearTimeout(tooltipHideTimeoutRef.current);
-                              }
-                              tooltipHideTimeoutRef.current = window.setTimeout(() => {
-                                setTooltipTrip(null);
-                              }, 80);
+                              hideTooltip(80);
                             }}
                             onClick={(e) => {
                               e.stopPropagation();
                               const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
                               updateTooltip(trip, colors, rect);
-                              if (tooltipHideTimeoutRef.current) {
-                                window.clearTimeout(tooltipHideTimeoutRef.current);
-                              }
-                              tooltipHideTimeoutRef.current = window.setTimeout(() => {
-                                setTooltipTrip(null);
-                              }, 2000);
+                              hideTooltip(2000);
                               onSelectTrip(trip);
                             }}
                           >
