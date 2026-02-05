@@ -261,6 +261,7 @@ fuel-logistics/
 - Nome, periodo, badge stato
 - Pulsanti azioni (solo per DRAFT):
   - **Genera Turni**: Avvia ottimizzatore automatico
+  - **Progress + stop**: Mostra best-so-far (litri) e permette di fermare il solver
   - **Valida ADR**: Verifica vincoli ore guida
   - **Conferma**: Passa a stato CONFIRMED
 
@@ -516,7 +517,13 @@ PUT    /api/schedules/:id
 DELETE /api/schedules/:id
 
 POST   /api/schedules/calculate-max   → Calcola capacità massima teorica
+POST   /api/schedules/calculate-max/jobs   → Avvia calcolo MAX asincrono (con progress)
+GET    /api/schedules/calculate-max/jobs/:jobId   → Stato/progress calcolo MAX
+POST   /api/schedules/calculate-max/jobs/:jobId/stop → Ferma calcolo MAX (best-so-far)
 POST   /api/schedules/:id/optimize    → Genera turni automatici
+POST   /api/schedules/:id/optimize/jobs    → Avvia generazione turni asincrona (con progress)
+GET    /api/schedules/:id/optimize/jobs/:jobId → Stato/progress generazione turni
+POST   /api/schedules/:id/optimize/jobs/:jobId/stop → Ferma generazione turni (best-so-far)
 POST   /api/schedules/:id/validate    → Valida vincoli ADR
 PUT    /api/schedules/:id/confirm     → Conferma pianificazione
 
