@@ -304,6 +304,13 @@ npx tsx src/tests/optimizer-allocation.test.ts  # 7 scenari calculateMaxCapacity
 npx tsx src/tests/optimizer-trips.test.ts       # Generazione trip
 ```
 
+Test E2E (Playwright):
+
+```bash
+cd frontend
+npm run test:e2e
+```
+
 ## Dati di Test
 
 Il seed popola il database con:
