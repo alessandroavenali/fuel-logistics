@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { format, addDays, subDays, isSameDay, startOfDay, parseISO, addMinutes } from 'date-fns';
 import { it } from 'date-fns/locale';
@@ -99,9 +99,14 @@ export function DriverTimeline({
     colors: { bg: string; border: string; text: string };
     rect: DOMRect;
   } | null>(null);
+  const tooltipHideTimeoutRef = useRef<number | null>(null);
 
   const updateTooltip = (trip: Trip, colors: { bg: string; border: string; text: string }, rect: DOMRect) => {
     const timelineForTooltip = calculateTimeline(trip);
+    if (tooltipHideTimeoutRef.current) {
+      window.clearTimeout(tooltipHideTimeoutRef.current);
+      tooltipHideTimeoutRef.current = null;
+    }
     setTooltipTrip(prev => {
       if (prev && prev.trip.id === trip.id) {
         return { ...prev, timeline: timelineForTooltip, colors, rect };
@@ -402,6 +407,22 @@ export function DriverTimeline({
                             left: `${left}px`,
                             width: `${width}px`,
                           }}
+                          onMouseEnter={(event) => {
+                            const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+                            updateTooltip(trip, colors, rect);
+                          }}
+                          onMouseMove={(event) => {
+                            const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+                            updateTooltip(trip, colors, rect);
+                          }}
+                          onMouseLeave={() => {
+                            if (tooltipHideTimeoutRef.current) {
+                              window.clearTimeout(tooltipHideTimeoutRef.current);
+                            }
+                            tooltipHideTimeoutRef.current = window.setTimeout(() => {
+                              setTooltipTrip(null);
+                            }, 80);
+                          }}
                         >
                           {/* Barra colorata */}
                           <div
@@ -413,17 +434,6 @@ export function DriverTimeline({
                               isSelected ? "ring-2 ring-offset-2 ring-primary border-primary-foreground" : colors.border,
                               "hover:brightness-110 hover:shadow-lg"
                             )}
-                            onMouseEnter={(event) => {
-                              const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-                              updateTooltip(trip, colors, rect);
-                            }}
-                            onMouseMove={(event) => {
-                              const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-                              updateTooltip(trip, colors, rect);
-                            }}
-                            onMouseLeave={() => {
-                              setTooltipTrip(null);
-                            }}
                             onClick={(e) => {
                               e.stopPropagation();
                               onSelectTrip(trip);
