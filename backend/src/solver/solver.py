@@ -492,6 +492,12 @@ def solve(
                     bound = float(self.BestObjectiveBound())
                 except Exception:
                     bound = None
+                bound_deliveries = None
+                if bound is not None:
+                    try:
+                        bound_deliveries = int(bound // big_m)
+                    except Exception:
+                        bound_deliveries = None
                 try:
                     elapsed = float(self.WallTime())
                 except Exception:
@@ -502,8 +508,8 @@ def solve(
                             "solutions": self._solution_count,
                             "objective_deliveries": deliveries,
                             "objective_liters": (deliveries * liters_per_unit) if deliveries is not None else None,
-                            "objective_bound_deliveries": bound,
-                            "objective_bound_liters": (bound * liters_per_unit) if bound is not None else None,
+                            "objective_bound_deliveries": bound_deliveries,
+                            "objective_bound_liters": (bound_deliveries * liters_per_unit) if bound_deliveries is not None else None,
                             "elapsed_seconds": elapsed,
                         }
                     )
