@@ -117,7 +117,13 @@ fuel-logistics/
 ### Pianificazione
 - `GET/POST /api/schedules` - Pianificazioni
 - `POST /api/schedules/calculate-max` - Calcola capacità massima teorica
+- `POST /api/schedules/calculate-max/jobs` - Avvia calcolo MAX asincrono (con progress)
+- `GET /api/schedules/calculate-max/jobs/:jobId` - Stato/progress calcolo MAX
+- `POST /api/schedules/calculate-max/jobs/:jobId/stop` - Ferma calcolo MAX (best-so-far)
 - `POST /api/schedules/:id/optimize` - Genera turni automatici
+- `POST /api/schedules/:id/optimize/jobs` - Avvia generazione turni asincrona (con progress)
+- `GET /api/schedules/:id/optimize/jobs/:jobId` - Stato/progress generazione turni
+- `POST /api/schedules/:id/optimize/jobs/:jobId/stop` - Ferma generazione turni (best-so-far)
 - `POST /api/schedules/:id/validate` - Valida vincoli ADR
 - `PUT /api/schedules/:id/confirm` - Conferma pianificazione
 - `GET/POST/PUT/DELETE /api/schedules/:id/trips` - Gestione viaggi
@@ -165,6 +171,38 @@ POST /api/schedules/:id/optimize
 # Legacy (fallback)
 POST /api/schedules/:id/optimize?optimizer=legacy
 ```
+
+### Job asincroni + progress (MAX e Turni)
+
+I calcoli lunghi sono eseguibili come job asincroni con progress:
+
+```bash
+# Avvia MAX (asincrono)
+POST /api/schedules/calculate-max/jobs
+
+# Leggi stato/progress
+GET /api/schedules/calculate-max/jobs/:jobId
+
+# Ferma (ritorna best-so-far se presente)
+POST /api/schedules/calculate-max/jobs/:jobId/stop
+
+# Avvia generazione turni (asincrono)
+POST /api/schedules/:id/optimize/jobs
+
+# Leggi stato/progress
+GET /api/schedules/:id/optimize/jobs/:jobId
+
+# Ferma (ritorna best-so-far se presente)
+POST /api/schedules/:id/optimize/jobs/:jobId/stop
+```
+
+**Progress** (best-so-far):
+- `objective_liters` litri consegnati migliori finora
+- `objective_deliveries` consegne migliori finora
+- `solutions` numero soluzioni trovate
+- `elapsed_seconds` tempo trascorso
+
+**Nota**: lo stop funziona solo dopo che il solver ha trovato almeno una soluzione.
 
 ### Legacy Optimizer
 
