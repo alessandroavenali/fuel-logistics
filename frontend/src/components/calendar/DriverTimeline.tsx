@@ -380,8 +380,6 @@ export function DriverTimeline({
                       const isCancelled = trip.status === 'CANCELLED';
                       const colors = isCancelled ? statusColors.CANCELLED : tripTypeColors[tripType];
                       const isSelected = trip.id === selectedTripId;
-                      const isHovered = trip.id === hoveredTripId;
-
                       const totalLiters = trip.trailers?.reduce((sum, t) => sum + t.litersLoaded, 0) || 0;
                       const hasDropOff = trip.trailers?.some(t => t.dropOffLocationId);
                       const hasPickup = trip.trailers?.some(t => t.isPickup);
