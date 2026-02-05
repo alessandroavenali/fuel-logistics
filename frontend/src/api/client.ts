@@ -219,6 +219,8 @@ export interface MaxCapacityJobStatus {
     solutions?: number;
     objective_deliveries?: number;
     objective_liters?: number;
+    objective_bound_deliveries?: number;
+    objective_bound_liters?: number;
     elapsed_seconds?: number;
   };
 }
@@ -238,6 +240,8 @@ export interface OptimizeJobStatus {
     solutions?: number;
     objective_deliveries?: number;
     objective_liters?: number;
+    objective_bound_deliveries?: number;
+    objective_bound_liters?: number;
     elapsed_seconds?: number;
   };
 }

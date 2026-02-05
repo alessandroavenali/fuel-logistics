@@ -124,6 +124,8 @@ export default function ScheduleDetail() {
     solutions?: number;
     objective_liters?: number;
     objective_deliveries?: number;
+    objective_bound_liters?: number;
+    objective_bound_deliveries?: number;
     elapsed_seconds?: number;
   } | null>(null);
   const [optimizeMode, setOptimizeMode] = useState<'quick' | 'optimal'>('optimal');
@@ -987,6 +989,18 @@ export default function ScheduleDetail() {
                   </span>
                   {typeof optimizeProgress.solutions === 'number' && (
                     <span className="ml-2">soluzioni: {optimizeProgress.solutions}</span>
+                  )}
+                  {typeof optimizeProgress.objective_bound_liters === 'number' && (
+                    <span className="ml-2">
+                      Bound: {Math.round(optimizeProgress.objective_bound_liters).toLocaleString()}L
+                    </span>
+                  )}
+                  {typeof optimizeProgress.objective_bound_liters === 'number' &&
+                  typeof optimizeProgress.objective_liters === 'number' &&
+                  optimizeProgress.objective_bound_liters > 0 && (
+                    <span className="ml-2">
+                      Gap: {Math.max(0, ((optimizeProgress.objective_bound_liters - optimizeProgress.objective_liters) / optimizeProgress.objective_bound_liters) * 100).toFixed(1)}%
+                    </span>
                   )}
                 </p>
               )}

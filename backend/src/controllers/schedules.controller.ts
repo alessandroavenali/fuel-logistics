@@ -384,6 +384,8 @@ async function readJobProgress(progressPath?: string): Promise<JobProgress | nul
 async function readJobProgressHistory(progressPath?: string): Promise<(JobProgress & {
   delta_liters?: number;
   delta_seconds?: number;
+  objective_bound_liters?: number;
+  objective_bound_deliveries?: number;
 })[] | null> {
   if (!progressPath) return null;
   try {
@@ -420,13 +422,24 @@ async function readJobProgressHistory(progressPath?: string): Promise<(JobProgre
   }
 }
 
-function summarizeProgressHistory(history?: (JobProgress & { delta_liters?: number; delta_seconds?: number })[] | null) {
+function summarizeProgressHistory(history?: (JobProgress & {
+  delta_liters?: number;
+  delta_seconds?: number;
+  objective_bound_liters?: number;
+  objective_bound_deliveries?: number;
+})[] | null) {
   if (!history || history.length === 0) return null;
   const improvements = history.filter(h => typeof h.delta_liters === 'number' && h.delta_liters > 0);
   const last = history[history.length - 1];
   const lastImprovement = improvements.length > 0 ? improvements[improvements.length - 1] : null;
   const lastImprovementSeconds = lastImprovement?.elapsed_seconds ?? null;
   const lastSeconds = typeof last.elapsed_seconds === 'number' ? last.elapsed_seconds : null;
+  const lastBoundLiters = typeof last.objective_bound_liters === 'number' ? last.objective_bound_liters : null;
+  const lastObjectiveLiters = typeof last.objective_liters === 'number' ? last.objective_liters : null;
+  let gapPercent: number | null = null;
+  if (lastBoundLiters !== null && lastObjectiveLiters !== null && lastBoundLiters > 0) {
+    gapPercent = ((lastBoundLiters - lastObjectiveLiters) / lastBoundLiters) * 100;
+  }
   const timeSinceLastImprovement =
     lastSeconds !== null && lastImprovementSeconds !== null
       ? Math.max(0, lastSeconds - lastImprovementSeconds)
@@ -451,7 +464,9 @@ function summarizeProgressHistory(history?: (JobProgress & { delta_liters?: numb
   return {
     totalSolutions: history.length,
     totalImprovements: improvements.length,
-    lastObjectiveLiters: typeof last.objective_liters === 'number' ? last.objective_liters : null,
+    lastObjectiveLiters,
+    lastObjectiveBoundLiters: lastBoundLiters,
+    gapPercent,
     lastElapsedSeconds: lastSeconds,
     lastImprovementSeconds,
     timeSinceLastImprovementSeconds: timeSinceLastImprovement,
