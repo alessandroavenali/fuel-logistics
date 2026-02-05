@@ -93,7 +93,6 @@ export function DriverTimeline({
   locations,
 }: DriverTimelineProps) {
   const [currentDate, setCurrentDate] = useState<Date>(() => startOfDay(new Date(startDate)));
-  const [hoveredTripId, setHoveredTripId] = useState<string | null>(null);
   const [tooltipTrip, setTooltipTrip] = useState<{
     trip: Trip;
     timeline: TimelineStep[];
@@ -393,18 +392,6 @@ export function DriverTimeline({
                             left: `${left}px`,
                             width: `${width}px`,
                           }}
-                          onMouseEnter={(event) => {
-                            setHoveredTripId(trip.id);
-                            const timelineForTooltip = calculateTimeline(trip);
-                            if (timelineForTooltip.length > 0) {
-                              const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-                              setTooltipTrip({ trip, timeline: timelineForTooltip, colors, rect });
-                            }
-                          }}
-                          onMouseLeave={() => {
-                            setHoveredTripId(null);
-                            setTooltipTrip(null);
-                          }}
                         >
                           {/* Barra colorata */}
                           <div
@@ -416,6 +403,16 @@ export function DriverTimeline({
                               isSelected ? "ring-2 ring-offset-2 ring-primary border-primary-foreground" : colors.border,
                               "hover:brightness-110 hover:shadow-lg"
                             )}
+                            onMouseEnter={(event) => {
+                              const timelineForTooltip = calculateTimeline(trip);
+                              if (timelineForTooltip.length > 0) {
+                                const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+                                setTooltipTrip({ trip, timeline: timelineForTooltip, colors, rect });
+                              }
+                            }}
+                            onMouseLeave={() => {
+                              setTooltipTrip(null);
+                            }}
                             onClick={(e) => {
                               e.stopPropagation();
                               onSelectTrip(trip);
