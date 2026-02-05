@@ -405,10 +405,8 @@ export function DriverTimeline({
                             )}
                             onMouseEnter={(event) => {
                               const timelineForTooltip = calculateTimeline(trip);
-                              if (timelineForTooltip.length > 0) {
-                                const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-                                setTooltipTrip({ trip, timeline: timelineForTooltip, colors, rect });
-                              }
+                              const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+                              setTooltipTrip({ trip, timeline: timelineForTooltip, colors, rect });
                             }}
                             onMouseLeave={() => {
                               setTooltipTrip(null);
@@ -526,6 +524,11 @@ export function DriverTimeline({
               <span className="text-xs text-muted-foreground">• {tooltipTrip.trip.driver?.name}</span>
             </div>
             <div className="space-y-1.5">
+              {tooltipTrip.timeline.length === 0 && (
+                <div className="text-xs text-muted-foreground">
+                  Timeline non disponibile per questo viaggio.
+                </div>
+              )}
               {tooltipTrip.timeline.map((step, idx) => (
                 <div key={idx} className="flex items-start gap-2 text-xs">
                   <span className="font-mono text-muted-foreground w-10 shrink-0">
