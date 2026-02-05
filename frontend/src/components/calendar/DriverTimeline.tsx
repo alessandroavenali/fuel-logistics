@@ -100,6 +100,16 @@ export function DriverTimeline({
     rect: DOMRect;
   } | null>(null);
 
+  const updateTooltip = (trip: Trip, colors: { bg: string; border: string; text: string }, rect: DOMRect) => {
+    const timelineForTooltip = calculateTimeline(trip);
+    setTooltipTrip(prev => {
+      if (prev && prev.trip.id === trip.id) {
+        return { ...prev, timeline: timelineForTooltip, colors, rect };
+      }
+      return { trip, timeline: timelineForTooltip, colors, rect };
+    });
+  };
+
   // Calcola timeline per un trip (per tooltip)
   const calculateTimeline = useMemo(() => {
     return (trip: Trip): TimelineStep[] => {
@@ -404,9 +414,12 @@ export function DriverTimeline({
                               "hover:brightness-110 hover:shadow-lg"
                             )}
                             onMouseEnter={(event) => {
-                              const timelineForTooltip = calculateTimeline(trip);
                               const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-                              setTooltipTrip({ trip, timeline: timelineForTooltip, colors, rect });
+                              updateTooltip(trip, colors, rect);
+                            }}
+                            onMouseMove={(event) => {
+                              const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+                              updateTooltip(trip, colors, rect);
                             }}
                             onMouseLeave={() => {
                               setTooltipTrip(null);
