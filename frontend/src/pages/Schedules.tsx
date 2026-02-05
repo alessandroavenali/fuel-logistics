@@ -168,6 +168,7 @@ export default function Schedules() {
   const [includeWeekend, setIncludeWeekend] = useState(false);
   const [maxCalcStartedAt, setMaxCalcStartedAt] = useState<number | null>(null);
   const [maxCalcElapsedSeconds, setMaxCalcElapsedSeconds] = useState(0);
+  const [maxTimeoutMinutes, setMaxTimeoutMinutes] = useState(240);
 
   const { data: schedules, isLoading } = useSchedules();
   const { data: trailers } = useTrailers(true); // Only active trailers
@@ -397,6 +398,7 @@ export default function Schedules() {
 
     // Check if at least one driver is available
     const driverAvailabilityApi = getDriverAvailabilityForApi();
+    const safeMaxTimeoutMinutes = Number.isFinite(maxTimeoutMinutes) ? Math.max(1, maxTimeoutMinutes) : 240;
     if (driverAvailabilityApi.length === 0) {
       toast({
         title: 'Errore',
@@ -425,13 +427,13 @@ export default function Schedules() {
         vehicleStates: vehicleStates.length > 0 ? vehicleStates : undefined,
         driverAvailability: driverAvailabilityApi,
         includeWeekend,
-        timeLimitSeconds: maxMode === 'quick' ? 60 : 14400,
+        timeLimitSeconds: maxMode === 'quick' ? 60 : Math.round(safeMaxTimeoutMinutes * 60),
       };
 
       const job = await schedulesApi.startCalculateMaxJob(payload);
       setMaxCalcJobId(job.jobId);
 
-      const maxWaitMs = 4 * 60 * 60 * 1000;
+      const maxWaitMs = (maxMode === 'quick' ? 60 : safeMaxTimeoutMinutes * 60) * 1000;
       const pollEveryMs = 2000;
       const pollStart = Date.now();
       let result: MaxCapacityResult | null = null;
@@ -452,7 +454,9 @@ export default function Schedules() {
       }
 
       if (!result) {
-        throw new Error('Timeout lato client: il calcolo MAX ha superato 4 ore');
+                        throw new Error(
+                          `Timeout lato client: il calcolo MAX ha superato ${safeMaxTimeoutMinutes} minuti`
+                        );
       }
 
       setMaxCapacityResult(result);
@@ -632,7 +636,7 @@ export default function Schedules() {
 
                 <div>
                   <Label htmlFor="requiredLiters">Litri Richiesti</Label>
-                  <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                     <span>Modalità calcolo:</span>
                     <div className="inline-flex rounded-md border bg-background p-0.5">
                       <button
@@ -649,6 +653,23 @@ export default function Schedules() {
                       >
                         Ottimizza (4h)
                       </button>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Label htmlFor="maxTimeoutMinutes" className="text-[11px] text-muted-foreground">
+                        Timeout (min)
+                      </Label>
+                      <Input
+                        id="maxTimeoutMinutes"
+                        type="number"
+                        min={1}
+                        className="h-6 w-20 text-[11px]"
+                        value={maxTimeoutMinutes}
+                        onChange={(event) => {
+                          const value = Number(event.target.value);
+                          setMaxTimeoutMinutes(Number.isFinite(value) ? value : 240);
+                        }}
+                        disabled={maxMode === 'quick'}
+                      />
                     </div>
                   </div>
                   <div className="flex gap-2">

@@ -128,6 +128,7 @@ export default function ScheduleDetail() {
     objective_bound_deliveries?: number;
     elapsed_seconds?: number;
   } | null>(null);
+  const [optimizeTimeoutMinutes, setOptimizeTimeoutMinutes] = useState(240);
   const [optimizeMode, setOptimizeMode] = useState<'quick' | 'optimal'>('optimal');
   const [optimizeStopRequested, setOptimizeStopRequested] = useState(false);
 
@@ -655,14 +656,15 @@ export default function ScheduleDetail() {
           initialAdrExceptions: count,
         }));
 
+      const safeOptimizeTimeoutMinutes = Number.isFinite(optimizeTimeoutMinutes) ? Math.max(1, optimizeTimeoutMinutes) : 240;
       const job = await schedulesApi.startOptimizeJob(id!, {
         driverAvailability: driverAvailability.length > 0 ? driverAvailability : undefined,
-        timeLimitSeconds: optimizeMode === 'quick' ? 60 : 14400,
+        timeLimitSeconds: optimizeMode === 'quick' ? 60 : Math.round(safeOptimizeTimeoutMinutes * 60),
       });
       setOptimizeJobId(job.jobId);
 
       const pollEveryMs = 2000;
-      const maxWaitMs = 4 * 60 * 60 * 1000;
+      const maxWaitMs = (optimizeMode === 'quick' ? 60 : safeOptimizeTimeoutMinutes * 60) * 1000;
       const pollStart = Date.now();
       let result: any | null = null;
 
@@ -682,7 +684,9 @@ export default function ScheduleDetail() {
       }
 
       if (!result) {
-        throw new Error('Timeout lato client: ottimizzazione oltre 4 ore');
+        throw new Error(
+          `Timeout lato client: ottimizzazione oltre ${safeOptimizeTimeoutMinutes} minuti`
+        );
       }
       setOptimizerWarnings(result.warnings || []);
       if (result.success) {
@@ -1825,7 +1829,7 @@ export default function ScheduleDetail() {
               </div>
             ))}
           </div>
-          <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <span>Modalità calcolo:</span>
             <div className="inline-flex rounded-md border bg-background p-0.5">
               <button
@@ -1842,6 +1846,23 @@ export default function ScheduleDetail() {
               >
                 Ottimizza (4h)
               </button>
+            </div>
+            <div className="flex items-center gap-1">
+              <Label htmlFor="optimizeTimeoutMinutes" className="text-[11px] text-muted-foreground">
+                Timeout (min)
+              </Label>
+              <Input
+                id="optimizeTimeoutMinutes"
+                type="number"
+                min={1}
+                className="h-6 w-20 text-[11px]"
+                value={optimizeTimeoutMinutes}
+                onChange={(event) => {
+                  const value = Number(event.target.value);
+                  setOptimizeTimeoutMinutes(Number.isFinite(value) ? value : 240);
+                }}
+                disabled={optimizeMode === 'quick'}
+              />
             </div>
           </div>
           <DialogFooter>
