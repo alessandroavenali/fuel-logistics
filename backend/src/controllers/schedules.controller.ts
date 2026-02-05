@@ -381,6 +381,86 @@ async function readJobProgress(progressPath?: string): Promise<JobProgress | nul
   }
 }
 
+async function readJobProgressHistory(progressPath?: string): Promise<(JobProgress & {
+  delta_liters?: number;
+  delta_seconds?: number;
+})[] | null> {
+  if (!progressPath) return null;
+  try {
+    const content = await fs.promises.readFile(progressPath, 'utf-8');
+    const lines = content.trim().split('\n').filter(Boolean);
+    if (lines.length === 0) return null;
+    const history = lines
+      .map(line => {
+        try {
+          return JSON.parse(line) as JobProgress;
+        } catch {
+          return null;
+        }
+      })
+      .filter((item): item is JobProgress => !!item);
+    if (history.length === 0) return null;
+    let prevLiters: number | null = null;
+    let prevSeconds: number | null = null;
+    return history.map(entry => {
+      const liters = typeof entry.objective_liters === 'number' ? entry.objective_liters : null;
+      const seconds = typeof entry.elapsed_seconds === 'number' ? entry.elapsed_seconds : null;
+      const delta_liters = liters !== null && prevLiters !== null ? liters - prevLiters : undefined;
+      const delta_seconds = seconds !== null && prevSeconds !== null ? seconds - prevSeconds : undefined;
+      if (liters !== null) prevLiters = liters;
+      if (seconds !== null) prevSeconds = seconds;
+      return {
+        ...entry,
+        delta_liters,
+        delta_seconds,
+      };
+    });
+  } catch {
+    return null;
+  }
+}
+
+function summarizeProgressHistory(history?: (JobProgress & { delta_liters?: number; delta_seconds?: number })[] | null) {
+  if (!history || history.length === 0) return null;
+  const improvements = history.filter(h => typeof h.delta_liters === 'number' && h.delta_liters > 0);
+  const last = history[history.length - 1];
+  const lastImprovement = improvements.length > 0 ? improvements[improvements.length - 1] : null;
+  const lastImprovementSeconds = lastImprovement?.elapsed_seconds ?? null;
+  const lastSeconds = typeof last.elapsed_seconds === 'number' ? last.elapsed_seconds : null;
+  const timeSinceLastImprovement =
+    lastSeconds !== null && lastImprovementSeconds !== null
+      ? Math.max(0, lastSeconds - lastImprovementSeconds)
+      : null;
+  const lastDeltaLiters = lastImprovement?.delta_liters ?? null;
+
+  const windowSize = 5;
+  const recent = improvements.slice(-windowSize);
+  let avgDeltaLitersPerMinute: number | null = null;
+  if (recent.length >= 2) {
+    const first = recent[0];
+    const lastRecent = recent[recent.length - 1];
+    if (typeof first.elapsed_seconds === 'number' && typeof lastRecent.elapsed_seconds === 'number') {
+      const dt = lastRecent.elapsed_seconds - first.elapsed_seconds;
+      const dl = recent.reduce((sum, item) => sum + (item.delta_liters ?? 0), 0);
+      if (dt > 0) {
+        avgDeltaLitersPerMinute = (dl / dt) * 60;
+      }
+    }
+  }
+
+  return {
+    totalSolutions: history.length,
+    totalImprovements: improvements.length,
+    lastObjectiveLiters: typeof last.objective_liters === 'number' ? last.objective_liters : null,
+    lastElapsedSeconds: lastSeconds,
+    lastImprovementSeconds,
+    timeSinceLastImprovementSeconds: timeSinceLastImprovement,
+    lastImprovementDeltaLiters: lastDeltaLiters,
+    avgDeltaLitersPerMinuteRecent: avgDeltaLitersPerMinute,
+    recentWindowSize: windowSize,
+  };
+}
+
 export async function startCalculateMaxCapacityJobHandler(req: Request, res: Response, next: NextFunction) {
   try {
     const prisma: PrismaClient = (req as any).prisma;
@@ -475,6 +555,7 @@ export async function getCalculateMaxCapacityJobHandler(req: Request, res: Respo
     cleanupMaxCalcJobs();
 
     const { jobId } = req.params;
+    const includeProgress = req.query.includeProgress === '1';
     const job = maxCalcJobs.get(jobId);
     if (!job) {
       throw new AppError(404, 'Max-capacity job not found');
@@ -484,6 +565,8 @@ export async function getCalculateMaxCapacityJobHandler(req: Request, res: Respo
     const elapsedMs = (job.startedAt ? now - job.startedAt : now - job.createdAt);
 
     const progress = await readJobProgress(job.progressPath);
+    const progressHistory = includeProgress ? await readJobProgressHistory(job.progressPath) : null;
+    const progressSummary = includeProgress ? summarizeProgressHistory(progressHistory) : null;
 
     res.json({
       jobId: job.id,
@@ -495,6 +578,8 @@ export async function getCalculateMaxCapacityJobHandler(req: Request, res: Respo
       result: job.status === 'COMPLETED' ? job.result : undefined,
       error: job.status === 'FAILED' ? job.error : undefined,
       progress: progress ?? undefined,
+      progressHistory: progressHistory ?? undefined,
+      progressSummary: progressSummary ?? undefined,
     });
   } catch (error) {
     next(error);
@@ -591,6 +676,7 @@ export async function getOptimizeScheduleJobHandler(req: Request, res: Response,
     cleanupMaxCalcJobs();
 
     const { jobId } = req.params;
+    const includeProgress = req.query.includeProgress === '1';
     const job = optimizeJobs.get(jobId);
     if (!job) {
       throw new AppError(404, 'Optimize job not found');
@@ -599,6 +685,8 @@ export async function getOptimizeScheduleJobHandler(req: Request, res: Response,
     const now = Date.now();
     const elapsedMs = (job.startedAt ? now - job.startedAt : now - job.createdAt);
     const progress = await readJobProgress(job.progressPath);
+    const progressHistory = includeProgress ? await readJobProgressHistory(job.progressPath) : null;
+    const progressSummary = includeProgress ? summarizeProgressHistory(progressHistory) : null;
 
     res.json({
       jobId: job.id,
@@ -611,6 +699,8 @@ export async function getOptimizeScheduleJobHandler(req: Request, res: Response,
       result: job.status === 'COMPLETED' ? job.result : undefined,
       error: job.status === 'FAILED' ? job.error : undefined,
       progress: progress ?? undefined,
+      progressHistory: progressHistory ?? undefined,
+      progressSummary: progressSummary ?? undefined,
     });
   } catch (error) {
     next(error);
