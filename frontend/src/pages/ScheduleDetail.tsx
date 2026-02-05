@@ -1417,7 +1417,7 @@ export default function ScheduleDetail() {
                 </div>
 
                 <div>
-                  <h4 className="text-sm font-medium text-muted-foreground mb-2">Cisterne</h4>
+                  <h4 className="text-sm font-medium text-muted-foreground mb-2">Rimorchi</h4>
                   <div className="space-y-2">
                     {selectedTrip.trailers?.map((t, i) => (
                       <div key={i} className="flex items-center gap-2 text-sm">
