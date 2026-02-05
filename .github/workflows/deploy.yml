@@ -24,7 +24,7 @@ jobs:
             git pull origin main
 
             echo "=== Building and deploying ==="
-            docker compose build --no-cache backend
+            docker compose build --no-cache backend frontend
             docker compose up -d
 
             echo "=== Running migrations ==="
