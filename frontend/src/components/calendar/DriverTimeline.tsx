@@ -113,6 +113,10 @@ export function DriverTimeline({
       }
       return { trip, timeline: timelineForTooltip, colors, rect };
     });
+    // Keep tooltip visible briefly even if mouseleave fires
+    tooltipHideTimeoutRef.current = window.setTimeout(() => {
+      setTooltipTrip(null);
+    }, 2000);
   };
 
   // Calcola timeline per un trip (per tooltip)
@@ -417,12 +421,7 @@ export function DriverTimeline({
                             updateTooltip(trip, colors, rect);
                           }}
                           onPointerLeave={() => {
-                            if (tooltipHideTimeoutRef.current) {
-                              window.clearTimeout(tooltipHideTimeoutRef.current);
-                            }
-                            tooltipHideTimeoutRef.current = window.setTimeout(() => {
-                              setTooltipTrip(null);
-                            }, 80);
+                            // no-op: tooltip auto-hides via TTL
                           }}
                           onMouseEnter={(event) => {
                             const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
@@ -433,12 +432,7 @@ export function DriverTimeline({
                             updateTooltip(trip, colors, rect);
                           }}
                           onMouseLeave={() => {
-                            if (tooltipHideTimeoutRef.current) {
-                              window.clearTimeout(tooltipHideTimeoutRef.current);
-                            }
-                            tooltipHideTimeoutRef.current = window.setTimeout(() => {
-                              setTooltipTrip(null);
-                            }, 80);
+                            // no-op: tooltip auto-hides via TTL
                           }}
                         >
                           {/* Barra colorata */}
