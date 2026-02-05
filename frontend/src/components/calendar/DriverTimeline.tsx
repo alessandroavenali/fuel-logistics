@@ -414,29 +414,6 @@ export function DriverTimeline({
                             left: `${left}px`,
                             width: `${width}px`,
                           }}
-                          title={`${tripTypeColors[tripType]?.label || tripType} • ${trip.vehicle?.plate || 'N/A'} • ${trip.driver?.name || 'N/A'}`}
-                          onPointerEnter={(event) => {
-                            const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-                            updateTooltip(trip, colors, rect);
-                          }}
-                          onPointerMove={(event) => {
-                            const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-                            updateTooltip(trip, colors, rect);
-                          }}
-                          onPointerLeave={() => {
-                            // no-op: tooltip auto-hides via TTL
-                          }}
-                          onMouseEnter={(event) => {
-                            const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-                            updateTooltip(trip, colors, rect);
-                          }}
-                          onMouseMove={(event) => {
-                            const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-                            updateTooltip(trip, colors, rect);
-                          }}
-                          onMouseLeave={() => {
-                            // no-op: tooltip auto-hides via TTL
-                          }}
                         >
                           {/* Barra colorata */}
                           <div
@@ -448,6 +425,29 @@ export function DriverTimeline({
                               isSelected ? "ring-2 ring-offset-2 ring-primary border-primary-foreground" : colors.border,
                               "hover:brightness-110 hover:shadow-lg"
                             )}
+                            title={`${tripTypeColors[tripType]?.label || tripType} • ${trip.vehicle?.plate || 'N/A'} • ${trip.driver?.name || 'N/A'}`}
+                            onPointerEnter={(event) => {
+                              const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+                              updateTooltip(trip, colors, rect);
+                            }}
+                            onPointerMove={(event) => {
+                              const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+                              updateTooltip(trip, colors, rect);
+                            }}
+                            onPointerLeave={() => {
+                              // no-op: tooltip auto-hides via TTL
+                            }}
+                            onMouseEnter={(event) => {
+                              const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+                              updateTooltip(trip, colors, rect);
+                            }}
+                            onMouseMove={(event) => {
+                              const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+                              updateTooltip(trip, colors, rect);
+                            }}
+                            onMouseLeave={() => {
+                              // no-op: tooltip auto-hides via TTL
+                            }}
                             onClick={(e) => {
                               e.stopPropagation();
                               const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
