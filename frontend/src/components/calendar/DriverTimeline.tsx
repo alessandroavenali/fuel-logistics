@@ -387,9 +387,6 @@ export function DriverTimeline({
                       const hasPickup = trip.trailers?.some(t => t.isPickup);
                       const trailersInfo = trip.trailers?.map(t => t.trailer?.plate).filter(Boolean).join(', ');
 
-                      // Calcola timeline per tooltip
-                      const timeline = isHovered ? calculateTimeline(trip) : [];
-
                       return (
                         <div
                           key={trip.id}
@@ -400,9 +397,10 @@ export function DriverTimeline({
                           }}
                           onMouseEnter={(event) => {
                             setHoveredTripId(trip.id);
-                            if (timeline.length > 0) {
+                            const timelineForTooltip = calculateTimeline(trip);
+                            if (timelineForTooltip.length > 0) {
                               const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-                              setTooltipTrip({ trip, timeline, colors, rect });
+                              setTooltipTrip({ trip, timeline: timelineForTooltip, colors, rect });
                             }
                           }}
                           onMouseLeave={() => {
