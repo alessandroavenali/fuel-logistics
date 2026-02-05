@@ -1294,7 +1294,7 @@ export async function runCPSATOptimizer(
     };
   }
 
-  if (solverResult.status === 'INFEASIBLE' || solverResult.status === 'MODEL_INVALID') {
+  if (solverResult.status === 'INFEASIBLE' || solverResult.status === 'MODEL_INVALID' || solverResult.status === 'UNKNOWN') {
     warnings.push(`Solver returned ${solverResult.status}`);
     return {
       success: false,
@@ -1696,6 +1696,29 @@ export async function calculateMaxCapacityCPSAT(
       dailyCapacity: 0,
       constraints,
       solverStatus: 'ERROR',
+    };
+  }
+
+  if (solverResult.status !== 'OPTIMAL' && solverResult.status !== 'FEASIBLE') {
+    constraints.push(`Solver returned ${solverResult.status}`);
+    return {
+      maxLiters: 0,
+      workingDays: planningDays.length,
+      daysWithDeliveries: 0,
+      breakdown: {
+        livignoDriverShuttles: 0,
+        livignoSupplyTrips: 0,
+        tiranoDriverShuttles: 0,
+        tiranoDriverFullRounds: 0,
+        supplyTrips: 0,
+        transferTrips: 0,
+        shuttleFromLivigno: 0,
+        supplyFromLivigno: 0,
+        adrExceptionsUsed: 0,
+      },
+      dailyCapacity: 0,
+      constraints,
+      solverStatus: solverResult.status,
     };
   }
 
