@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { format, addDays, subDays, isSameDay, startOfDay, parseISO, addMinutes } from 'date-fns';
 import { it } from 'date-fns/locale';
 import { ChevronLeft, ChevronRight, Truck, Container, ArrowUp, ArrowDown, MapPin, Fuel } from 'lucide-react';
@@ -58,7 +59,7 @@ const tripTypeColors: Record<TripType, { bg: string; border: string; text: strin
   SHUTTLE_LIVIGNO: { bg: 'bg-green-500', border: 'border-green-600', text: 'text-white', label: 'Shuttle' },
   SUPPLY_MILANO: { bg: 'bg-blue-500', border: 'border-blue-600', text: 'text-white', label: 'Supply' },
   FULL_ROUND: { bg: 'bg-purple-500', border: 'border-purple-600', text: 'text-white', label: 'Completo' },
-  TRANSFER_TIRANO: { bg: 'bg-orange-500', border: 'border-orange-600', text: 'text-white', label: 'Transfer' },
+  TRANSFER_TIRANO: { bg: 'bg-orange-500', border: 'border-orange-600', text: 'text-white', label: 'Travaso' },
   SHUTTLE_FROM_LIVIGNO: { bg: 'bg-cyan-500', border: 'border-cyan-600', text: 'text-white', label: 'Shuttle LIV' },
   SUPPLY_FROM_LIVIGNO: { bg: 'bg-pink-500', border: 'border-pink-600', text: 'text-white', label: 'Supply LIV' },
 };
@@ -93,6 +94,18 @@ export function DriverTimeline({
 }: DriverTimelineProps) {
   const [currentDate, setCurrentDate] = useState<Date>(() => startOfDay(new Date(startDate)));
   const [hoveredTripId, setHoveredTripId] = useState<string | null>(null);
+  const [tooltipTrip, setTooltipTrip] = useState<{
+    trip: Trip;
+    timeline: TimelineStep[];
+    colors: { bg: string; border: string; text: string };
+    rect: DOMRect;
+  } | null>(null);
+  const [tooltipTrip, setTooltipTrip] = useState<{
+    trip: Trip;
+    timeline: TimelineStep[];
+    colors: { bg: string; border: string; text: string };
+    rect: DOMRect;
+  } | null>(null);
 
   // Calcola timeline per un trip (per tooltip)
   const calculateTimeline = useMemo(() => {
@@ -134,7 +147,7 @@ export function DriverTimeline({
         timeline.push({ time: new Date(currentTime), location: parking.name, action: 'Fine', icon: 'end' });
       } else if (tripType === 'TRANSFER_TIRANO') {
         timeline.push({ time: new Date(currentTime), location: parking.name, action: 'Inizio sversamento', icon: 'start' });
-        timeline.push({ time: new Date(currentTime), location: parking.name, action: 'Sversamento', icon: 'unload', details: '17.500 L' });
+        timeline.push({ time: new Date(currentTime), location: parking.name, action: 'Travaso rimorchio → motrice', icon: 'unload', details: '17.500 L' });
         currentTime = addMinutes(currentTime, 30);
         timeline.push({ time: new Date(currentTime), location: parking.name, action: 'Fine', icon: 'end' });
       } else if (tripType === 'FULL_ROUND') {
@@ -160,7 +173,7 @@ export function DriverTimeline({
         timeline.push({ time: new Date(currentTime), location: destination.name, action: 'Partenza da Livigno', icon: 'start' });
         currentTime = addMinutes(currentTime, getRouteDuration(destination.id, parking.id));
         timeline.push({ time: new Date(currentTime), location: parking.name, action: 'Arrivo Tirano', icon: 'arrive' });
-        timeline.push({ time: new Date(currentTime), location: parking.name, action: 'Transfer', icon: 'load', details: '17.500 L' });
+        timeline.push({ time: new Date(currentTime), location: parking.name, action: 'Travaso rimorchio → motrice', icon: 'unload', details: '17.500 L' });
         currentTime = addMinutes(currentTime, TRANSFER_TIME);
         timeline.push({ time: new Date(currentTime), location: parking.name, action: 'Partenza', icon: 'depart' });
         currentTime = addMinutes(currentTime, getRouteDuration(parking.id, destination.id));
@@ -391,8 +404,17 @@ export function DriverTimeline({
                             left: `${left}px`,
                             width: `${width}px`,
                           }}
-                          onMouseEnter={() => setHoveredTripId(trip.id)}
-                          onMouseLeave={() => setHoveredTripId(null)}
+                          onMouseEnter={(event) => {
+                            setHoveredTripId(trip.id);
+                            if (timeline.length > 0) {
+                              const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+                              setTooltipTrip({ trip, timeline, colors, rect });
+                            }
+                          }}
+                          onMouseLeave={() => {
+                            setHoveredTripId(null);
+                            setTooltipTrip(null);
+                          }}
                         >
                           {/* Barra colorata */}
                           <div
@@ -438,61 +460,6 @@ export function DriverTimeline({
                             </div>
                           </div>
 
-                          {/* Tooltip con cronologia - FRATELLO della barra, non figlio */}
-                          {isHovered && timeline.length > 0 && (
-                            <div
-                              className="absolute z-[9999] bg-popover text-popover-foreground border rounded-lg shadow-xl p-3 w-[280px] pointer-events-none"
-                              style={{
-                                top: '100%',
-                                marginTop: '4px',
-                                // Se la barra è nella metà destra, allinea tooltip a destra
-                                ...(left > timelineWidth / 2
-                                  ? { right: 0 }
-                                  : { left: 0 }
-                                ),
-                              }}
-                            >
-                              <div className="flex items-center gap-2 mb-2 pb-2 border-b">
-                                <Badge className={`${colors.bg} ${colors.text} text-xs`}>
-                                  {tripTypeColors[tripType]?.label || tripType}
-                                </Badge>
-                                <span className="text-sm font-medium">{trip.vehicle?.plate}</span>
-                                <span className="text-xs text-muted-foreground">• {trip.driver?.name}</span>
-                              </div>
-                              <div className="space-y-1.5">
-                                {timeline.map((step, idx) => (
-                                  <div key={idx} className="flex items-start gap-2 text-xs">
-                                    <span className="font-mono text-muted-foreground w-10 shrink-0">
-                                      {format(step.time, 'HH:mm')}
-                                    </span>
-                                    <div className={cn(
-                                      "w-4 h-4 rounded-full flex items-center justify-center shrink-0",
-                                      step.icon === 'start' ? 'bg-green-500 text-white' :
-                                      step.icon === 'end' ? 'bg-blue-500 text-white' :
-                                      step.icon === 'load' ? 'bg-emerald-500 text-white' :
-                                      step.icon === 'unload' ? 'bg-yellow-500 text-white' :
-                                      'bg-muted text-muted-foreground'
-                                    )}>
-                                      {step.icon === 'start' || step.icon === 'end' ? (
-                                        <MapPin className="h-2.5 w-2.5" />
-                                      ) : step.icon === 'load' || step.icon === 'unload' ? (
-                                        <Fuel className="h-2.5 w-2.5" />
-                                      ) : (
-                                        <ArrowDown className="h-2.5 w-2.5" />
-                                      )}
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                      <span className="font-medium">{step.action}</span>
-                                      <span className="text-muted-foreground ml-1">{step.location}</span>
-                                      {step.details && (
-                                        <span className="ml-1 text-[10px] bg-muted px-1 rounded">{step.details}</span>
-                                      )}
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
                         </div>
                       );
                     })}
@@ -521,7 +488,7 @@ export function DriverTimeline({
         </div>
         <div className="flex items-center gap-1">
           <div className="w-3 h-3 rounded bg-orange-500" />
-          <span>Transfer</span>
+          <span>Travaso</span>
         </div>
         <div className="flex items-center gap-1">
           <div className="w-3 h-3 rounded bg-cyan-500" />
@@ -542,6 +509,71 @@ export function DriverTimeline({
           </>
         )}
       </div>
+
+      {tooltipTrip && typeof document !== 'undefined' && (() => {
+        const tooltipWidth = 280;
+        const margin = 8;
+        const rect = tooltipTrip.rect;
+        let left = rect.left;
+        if (left + tooltipWidth > window.innerWidth - margin) {
+          left = rect.right - tooltipWidth;
+        }
+        left = Math.max(margin, Math.min(left, window.innerWidth - tooltipWidth - margin));
+        const estimatedHeight = Math.min(320, 80 + tooltipTrip.timeline.length * 20);
+        let top = rect.bottom + 6;
+        if (top + estimatedHeight > window.innerHeight - margin) {
+          top = rect.top - estimatedHeight - 6;
+        }
+        top = Math.max(margin, top);
+
+        return createPortal(
+          <div
+            className="fixed z-[9999] bg-popover text-popover-foreground border rounded-lg shadow-xl p-3 w-[280px] pointer-events-none"
+            style={{ top, left }}
+          >
+            <div className="flex items-center gap-2 mb-2 pb-2 border-b">
+              <Badge className={`${tooltipTrip.colors.bg} ${tooltipTrip.colors.text} text-xs`}>
+                {tripTypeColors[tooltipTrip.trip.tripType || 'FULL_ROUND']?.label || tooltipTrip.trip.tripType}
+              </Badge>
+              <span className="text-sm font-medium">{tooltipTrip.trip.vehicle?.plate}</span>
+              <span className="text-xs text-muted-foreground">• {tooltipTrip.trip.driver?.name}</span>
+            </div>
+            <div className="space-y-1.5">
+              {tooltipTrip.timeline.map((step, idx) => (
+                <div key={idx} className="flex items-start gap-2 text-xs">
+                  <span className="font-mono text-muted-foreground w-10 shrink-0">
+                    {format(step.time, 'HH:mm')}
+                  </span>
+                  <div className={cn(
+                    "w-4 h-4 rounded-full flex items-center justify-center shrink-0",
+                    step.icon === 'start' ? 'bg-green-500 text-white' :
+                    step.icon === 'end' ? 'bg-blue-500 text-white' :
+                    step.icon === 'load' ? 'bg-emerald-500 text-white' :
+                    step.icon === 'unload' ? 'bg-yellow-500 text-white' :
+                    'bg-muted text-muted-foreground'
+                  )}>
+                    {step.icon === 'start' || step.icon === 'end' ? (
+                      <MapPin className="h-2.5 w-2.5" />
+                    ) : step.icon === 'load' || step.icon === 'unload' ? (
+                      <Fuel className="h-2.5 w-2.5" />
+                    ) : (
+                      <ArrowDown className="h-2.5 w-2.5" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <span className="font-medium">{step.action}</span>
+                    <span className="text-muted-foreground ml-1">{step.location}</span>
+                    {step.details && (
+                      <span className="ml-1 text-[10px] bg-muted px-1 rounded">{step.details}</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>,
+          document.body
+        );
+      })()}
     </div>
   );
 }

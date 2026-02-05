@@ -82,7 +82,7 @@ const getTripTypeBadge = (type: TripType) => {
       className: 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300',
     },
     TRANSFER_TIRANO: {
-      label: 'Sversamento',
+      label: 'Travaso',
       className: 'bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300',
     },
     SHUTTLE_FROM_LIVIGNO: {
@@ -171,7 +171,7 @@ export default function ScheduleDetail() {
   // - SHUTTLE_LIVIGNO: Tirano -> Livigno -> Tirano (4.5h, solo motrice - serbatoio integrato)
   // - SUPPLY_MILANO: Tirano -> Milano -> Tirano (6h, motrice + 1 rimorchio)
   // - FULL_ROUND: Tirano -> Milano -> Tirano -> Livigno -> Tirano (9h, solo motrice)
-  // - TRANSFER_TIRANO: Sversamento rimorchio pieno -> serbatoio integrato (30 min)
+  // - TRANSFER_TIRANO: Travaso rimorchio pieno -> motrice (30 min)
   const calculateTimeline = useMemo(() => {
     return (trip: Trip | null) => {
       if (!trip || !routeMap || !sourceLocation || !parkingLocation || !destinationLocation) {
@@ -302,35 +302,35 @@ export default function ScheduleDetail() {
         });
       }
 
-      // === TRANSFER_TIRANO: Sversamento rimorchio pieno -> serbatoio integrato ===
+      // === TRANSFER_TIRANO: Travaso rimorchio pieno -> motrice ===
       else if (tripType === 'TRANSFER_TIRANO') {
         const TRANSFER_TIME = 30;
 
-        // 1. Inizio sversamento a Tirano
+        // 1. Inizio travaso a Tirano
         timeline.push({
           time: new Date(currentTime),
           location: parkingLocation.name,
-          action: 'Inizio sversamento rimorchio',
+          action: 'Inizio travaso rimorchio',
           icon: 'start',
           trailers: getTrailerPlates(allTrailers, true),
         });
 
-        // 2. Sversamento in corso
+        // 2. Travaso in corso
         timeline.push({
           time: new Date(currentTime),
           location: parkingLocation.name,
-          action: 'Sversamento in serbatoio integrato',
+          action: 'Travaso rimorchio → motrice',
           icon: 'unload',
           details: `${totalLiters.toLocaleString()} L`,
           trailers: getTrailerPlates(allTrailers, false),
         });
         currentTime = addMinutes(currentTime, TRANSFER_TIME);
 
-        // 3. Fine sversamento
+        // 3. Fine travaso
         timeline.push({
           time: new Date(currentTime),
           location: parkingLocation.name,
-          action: 'Sversamento completato - Motrice pronta',
+          action: 'Travaso completato - Motrice pronta',
           icon: 'end',
           trailers: getTrailerPlates(allTrailers, false),
         });
@@ -451,12 +451,12 @@ export default function ScheduleDetail() {
           trailers: getTrailerPlates(allTrailers, true),
         });
 
-        // 3. TRANSFER: rimorchio pieno -> serbatoio integrato
+        // 3. TRAVASO: rimorchio pieno -> motrice
         timeline.push({
           time: new Date(currentTime),
           location: parkingLocation.name,
-          action: 'Sversamento rimorchio → cisterna',
-          icon: 'load',
+          action: 'Travaso rimorchio → motrice',
+          icon: 'unload',
           details: `${INTEGRATED_TANK_LITERS.toLocaleString()} L`,
           trailers: getTrailerPlates(allTrailers, false),
         });
