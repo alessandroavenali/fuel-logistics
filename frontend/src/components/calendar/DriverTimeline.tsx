@@ -103,6 +103,9 @@ export function DriverTimeline({
 
   const updateTooltip = (trip: Trip, colors: { bg: string; border: string; text: string }, rect: DOMRect) => {
     const timelineForTooltip = calculateTimeline(trip);
+    if (typeof window !== 'undefined') {
+      (window as unknown as { __tooltipTrip?: { id: string } }).__tooltipTrip = { id: trip.id };
+    }
     if (tooltipHideTimeoutRef.current) {
       window.clearTimeout(tooltipHideTimeoutRef.current);
       tooltipHideTimeoutRef.current = null;
