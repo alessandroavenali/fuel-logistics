@@ -655,12 +655,12 @@ export default function ScheduleDetail() {
 
       const job = await schedulesApi.startOptimizeJob(id!, {
         driverAvailability: driverAvailability.length > 0 ? driverAvailability : undefined,
-        timeLimitSeconds: optimizeMode === 'quick' ? 60 : 3600,
+        timeLimitSeconds: optimizeMode === 'quick' ? 60 : 14400,
       });
       setOptimizeJobId(job.jobId);
 
       const pollEveryMs = 2000;
-      const maxWaitMs = 60 * 60 * 1000;
+      const maxWaitMs = 4 * 60 * 60 * 1000;
       const pollStart = Date.now();
       let result: any | null = null;
 
@@ -680,7 +680,7 @@ export default function ScheduleDetail() {
       }
 
       if (!result) {
-        throw new Error('Timeout lato client: ottimizzazione oltre 60 minuti');
+        throw new Error('Timeout lato client: ottimizzazione oltre 4 ore');
       }
       setOptimizerWarnings(result.warnings || []);
       if (result.success) {
@@ -978,7 +978,7 @@ export default function ScheduleDetail() {
             <div>
               <p className="text-sm font-medium text-primary">Ottimizzazione in corso</p>
               <p className="text-xs text-muted-foreground">
-                Può richiedere tempo su orizzonti lunghi (timeout server: 60 min).
+                Può richiedere tempo su orizzonti lunghi (timeout server: 4 ore).
               </p>
               {optimizeProgress && (
                 <p className="mt-1 text-xs text-muted-foreground">
@@ -1826,7 +1826,7 @@ export default function ScheduleDetail() {
                 className={`px-2 py-0.5 text-[11px] rounded ${optimizeMode === 'optimal' ? 'bg-primary text-primary-foreground' : 'hover:bg-accent'}`}
                 onClick={() => setOptimizeMode('optimal')}
               >
-                Ottimizza (60m)
+                Ottimizza (4h)
               </button>
             </div>
           </div>

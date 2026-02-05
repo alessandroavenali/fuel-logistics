@@ -511,7 +511,7 @@ def solve(
                     pass
 
     solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = float(data.get("time_limit_seconds", 600))
+    solver.parameters.max_time_in_seconds = float(data.get("time_limit_seconds", 14400))
     solver.parameters.num_search_workers = int(data.get("num_search_workers", 8))
 
     progress_cb = ProgressCallback(total_deliveries) if (on_solution is not None or should_stop is not None) else None

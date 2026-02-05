@@ -423,13 +423,13 @@ export default function Schedules() {
         vehicleStates: vehicleStates.length > 0 ? vehicleStates : undefined,
         driverAvailability: driverAvailabilityApi,
         includeWeekend,
-        timeLimitSeconds: maxMode === 'quick' ? 60 : 3600,
+        timeLimitSeconds: maxMode === 'quick' ? 60 : 14400,
       };
 
       const job = await schedulesApi.startCalculateMaxJob(payload);
       setMaxCalcJobId(job.jobId);
 
-      const maxWaitMs = 60 * 60 * 1000;
+      const maxWaitMs = 4 * 60 * 60 * 1000;
       const pollEveryMs = 2000;
       const pollStart = Date.now();
       let result: MaxCapacityResult | null = null;
@@ -450,7 +450,7 @@ export default function Schedules() {
       }
 
       if (!result) {
-        throw new Error('Timeout lato client: il calcolo MAX ha superato 60 minuti');
+        throw new Error('Timeout lato client: il calcolo MAX ha superato 4 ore');
       }
 
       setMaxCapacityResult(result);
@@ -645,7 +645,7 @@ export default function Schedules() {
                         className={`px-2 py-0.5 text-[11px] rounded ${maxMode === 'optimal' ? 'bg-primary text-primary-foreground' : 'hover:bg-accent'}`}
                         onClick={() => setMaxMode('optimal')}
                       >
-                        Ottimizza (60m)
+                        Ottimizza (4h)
                       </button>
                     </div>
                   </div>
@@ -679,7 +679,7 @@ export default function Schedules() {
                         Calcolo MAX in corso ({maxCalcElapsedSeconds}s)
                       </p>
                       <p className="text-[11px] text-muted-foreground">
-                        Scenario complesso: può richiedere anche molti minuti (timeout server: 60 min).
+                        Scenario complesso: può richiedere anche molti minuti (timeout server: 4 ore).
                       </p>
                       {maxCalcProgress && (
                         <div className="mt-1 text-[11px] text-muted-foreground">

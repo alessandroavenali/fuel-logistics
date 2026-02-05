@@ -202,6 +202,9 @@ POST /api/schedules/:id/optimize/jobs/:jobId/stop
 - `solutions` numero soluzioni trovate
 - `elapsed_seconds` tempo trascorso
 
+**Timeout**: di default i job CP-SAT hanno un limite di **4 ore** (`timeLimitSeconds=14400`).
+Puoi impostare un timeout diverso passando `timeLimitSeconds` nel body della richiesta.
+
 **Nota**: lo stop funziona solo dopo che il solver ha trovato almeno una soluzione.
 
 ### Legacy Optimizer

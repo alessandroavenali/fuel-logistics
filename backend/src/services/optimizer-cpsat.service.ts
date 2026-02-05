@@ -173,7 +173,7 @@ export function createSolverInput(params: {
     numTractors,
     initialFullTrailers = 0,
     initialFullTractors = 0,
-    timeLimitSeconds = 60,
+    timeLimitSeconds = 14400,
     numSearchWorkers = 8,
     includeWeekend = true,
   } = params;
@@ -1256,7 +1256,7 @@ export async function runCPSATOptimizer(
     initialFullTrailers,
     initialFullTractors,
     // Complex scenarios (e.g., 30-day horizon, asymmetric availability) need longer solve time.
-    timeLimitSeconds: options.timeLimitSeconds ?? 3600,
+    timeLimitSeconds: options.timeLimitSeconds ?? 14400,
     // Keep solver output deterministic across runs to avoid conversion drift.
     // Parallel search can produce alternate optimal plans that are harder to map
     // to concrete resource identities with the current converter.
@@ -1666,7 +1666,7 @@ export async function calculateMaxCapacityCPSAT(
     // MAX capacity can be an expensive solve on long horizons/asymmetric shifts.
     // Keep the same long timeout as optimization runs and reduce worker count
     // to limit memory pressure on long runs.
-    timeLimitSeconds: input.timeLimitSeconds ?? 3600,
+    timeLimitSeconds: input.timeLimitSeconds ?? 14400,
     numSearchWorkers: input.numSearchWorkers ?? 1,
     includeWeekend: hasExplicitAvailability ? true : (input.includeWeekend ?? false),
     progressPath: input.progressPath,
