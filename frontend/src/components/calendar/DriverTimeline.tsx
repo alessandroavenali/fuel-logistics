@@ -103,9 +103,6 @@ export function DriverTimeline({
 
   const updateTooltip = (trip: Trip, colors: { bg: string; border: string; text: string }, rect: DOMRect) => {
     const timelineForTooltip = calculateTimeline(trip);
-    if (typeof window !== 'undefined') {
-      (window as unknown as { __tooltipTrip?: { id: string } }).__tooltipTrip = { id: trip.id };
-    }
     if (tooltipHideTimeoutRef.current) {
       window.clearTimeout(tooltipHideTimeoutRef.current);
       tooltipHideTimeoutRef.current = null;
@@ -116,10 +113,6 @@ export function DriverTimeline({
       }
       return { trip, timeline: timelineForTooltip, colors, rect };
     });
-    // Keep tooltip visible briefly even if mouseleave fires
-    tooltipHideTimeoutRef.current = window.setTimeout(() => {
-      setTooltipTrip(null);
-    }, 2000);
   };
 
   // Calcola timeline per un trip (per tooltip)
@@ -435,7 +428,12 @@ export function DriverTimeline({
                               updateTooltip(trip, colors, rect);
                             }}
                             onPointerLeave={() => {
-                              // no-op: tooltip auto-hides via TTL
+                              if (tooltipHideTimeoutRef.current) {
+                                window.clearTimeout(tooltipHideTimeoutRef.current);
+                              }
+                              tooltipHideTimeoutRef.current = window.setTimeout(() => {
+                                setTooltipTrip(null);
+                              }, 80);
                             }}
                             onMouseEnter={(event) => {
                               const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
@@ -446,7 +444,12 @@ export function DriverTimeline({
                               updateTooltip(trip, colors, rect);
                             }}
                             onMouseLeave={() => {
-                              // no-op: tooltip auto-hides via TTL
+                              if (tooltipHideTimeoutRef.current) {
+                                window.clearTimeout(tooltipHideTimeoutRef.current);
+                              }
+                              tooltipHideTimeoutRef.current = window.setTimeout(() => {
+                                setTooltipTrip(null);
+                              }, 80);
                             }}
                             onClick={(e) => {
                               e.stopPropagation();
