@@ -39,6 +39,30 @@ const maxCalcJobs = new Map<string, MaxCalcJob>();
 const optimizeJobs = new Map<string, OptimizeJob>();
 const MAX_JOB_RETENTION_MS = 60 * 60 * 1000; // 1h
 
+async function validateDriverAvailabilityInput(
+  prisma: PrismaClient,
+  driverAvailability?: any[]
+): Promise<{ ok: boolean; error?: string }> {
+  if (!driverAvailability) return { ok: true };
+  if (!Array.isArray(driverAvailability)) {
+    return { ok: false, error: 'driverAvailability must be an array' };
+  }
+  if (driverAvailability.length === 0) {
+    return { ok: false, error: 'driverAvailability is empty' };
+  }
+  const ids = driverAvailability.map(a => a.driverId).filter(Boolean);
+  if (ids.length === 0) {
+    return { ok: false, error: 'driverAvailability has no driverId entries' };
+  }
+  const count = await prisma.driver.count({
+    where: { id: { in: ids }, isActive: true },
+  });
+  if (count === 0) {
+    return { ok: false, error: 'driverAvailability has no valid driverId entries' };
+  }
+  return { ok: true };
+}
+
 export async function getSchedules(req: Request, res: Response, next: NextFunction) {
   try {
     const prisma: PrismaClient = (req as any).prisma;
@@ -280,6 +304,20 @@ export async function calculateMaxCapacityHandler(req: Request, res: Response, n
     if (!startDate || !endDate) {
       throw new AppError(400, 'startDate and endDate are required');
     }
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+      throw new AppError(400, 'startDate or endDate is invalid');
+    }
+    if (end < start) {
+      throw new AppError(400, 'endDate must be on or after startDate');
+    }
+    if (driverAvailability) {
+      const validation = await validateDriverAvailabilityInput(prisma, driverAvailability);
+      if (!validation.ok) {
+        throw new AppError(400, validation.error || 'Invalid driverAvailability');
+      }
+    }
 
     const input = {
       startDate,
@@ -360,6 +398,20 @@ export async function startCalculateMaxCapacityJobHandler(req: Request, res: Res
 
     if (!startDate || !endDate) {
       throw new AppError(400, 'startDate and endDate are required');
+    }
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+      throw new AppError(400, 'startDate or endDate is invalid');
+    }
+    if (end < start) {
+      throw new AppError(400, 'endDate must be on or after startDate');
+    }
+    if (driverAvailability) {
+      const validation = await validateDriverAvailabilityInput(prisma, driverAvailability);
+      if (!validation.ok) {
+        throw new AppError(400, validation.error || 'Invalid driverAvailability');
+      }
     }
 
     cleanupMaxCalcJobs();
@@ -477,6 +529,13 @@ export async function startOptimizeScheduleJobHandler(req: Request, res: Respons
     const optimizer = (req.query.optimizer as string) || 'cpsat';
 
     cleanupMaxCalcJobs();
+
+    if (driverAvailability) {
+      const validation = await validateDriverAvailabilityInput(prisma, driverAvailability);
+      if (!validation.ok) {
+        throw new AppError(400, validation.error || 'Invalid driverAvailability');
+      }
+    }
 
     const jobId = randomUUID();
     const progressPath = path.join('/tmp', `fuel-opt-progress-${jobId}.jsonl`);
