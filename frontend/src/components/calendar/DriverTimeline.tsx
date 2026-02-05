@@ -100,12 +100,6 @@ export function DriverTimeline({
     colors: { bg: string; border: string; text: string };
     rect: DOMRect;
   } | null>(null);
-  const [tooltipTrip, setTooltipTrip] = useState<{
-    trip: Trip;
-    timeline: TimelineStep[];
-    colors: { bg: string; border: string; text: string };
-    rect: DOMRect;
-  } | null>(null);
 
   // Calcola timeline per un trip (per tooltip)
   const calculateTimeline = useMemo(() => {
