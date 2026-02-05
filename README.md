@@ -7,6 +7,7 @@ Sistema di gestione e ottimizzazione dei turni di trasporto carburante.
 - Configurazione asset (motrici, rimorchi, autisti, luoghi)
 - Pianificazione automatica turni basata su fabbisogno litri
 - Modifica manuale con validazione vincoli ADR in tempo reale
+- Calcolo MAX e generazione turni asincroni con progress + stop (best-so-far)
 - Calcolo costi (autisti a chiamata)
 - Reporting completo
 
@@ -206,6 +207,16 @@ POST /api/schedules/:id/optimize/jobs/:jobId/stop
 Puoi impostare un timeout diverso passando `timeLimitSeconds` nel body della richiesta.
 
 **Nota**: lo stop funziona solo dopo che il solver ha trovato almeno una soluzione.
+
+### UI - Calendario Turni
+
+- Tooltip viaggio su hover, renderizzato fuori dal contenitore calendario per evitare clipping.
+- Tooltip si chiude su roll-out e su scroll dell’area calendario.
+
+### Deploy (stato attuale)
+
+- Il deploy ricostruisce **backend e frontend** (non solo backend).
+- Se il server va in 502, verificare spazio disco: il container frontend può fallire se `/tmp` è pieno (nginx non crea `proxy_temp`).
 
 ### Legacy Optimizer
 

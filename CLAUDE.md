@@ -53,7 +53,7 @@ git push origin main  →  GitHub Actions  →  Deploy automatico su flipr-nue
 Il workflow `.github/workflows/deploy.yml`:
 1. Si connette via SSH al server
 2. Esegue `git pull`
-3. Ricostruisce i container Docker
+3. Ricostruisce i container Docker (backend + frontend)
 4. Applica le migrazioni Prisma
 
 ### Comandi Utili

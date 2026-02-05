@@ -107,6 +107,11 @@ chmod +x deploy.sh
 ./deploy.sh --seed
 ```
 
+## Note operative recenti
+
+- Il deploy ricostruisce **backend e frontend**. Se il frontend non viene rebuildato, la UI può restare indietro.
+- Se il sito mostra `502 Bad Gateway`, verificare lo spazio disco: nginx nel container frontend fallisce se non riesce a creare `/tmp/proxy_temp`.
+
 ## Deploy Manuale (senza script)
 
 ```bash
