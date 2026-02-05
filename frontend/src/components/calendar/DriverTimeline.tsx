@@ -453,6 +453,14 @@ export function DriverTimeline({
                             )}
                             onClick={(e) => {
                               e.stopPropagation();
+                              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                              updateTooltip(trip, colors, rect);
+                              if (tooltipHideTimeoutRef.current) {
+                                window.clearTimeout(tooltipHideTimeoutRef.current);
+                              }
+                              tooltipHideTimeoutRef.current = window.setTimeout(() => {
+                                setTooltipTrip(null);
+                              }, 2000);
                               onSelectTrip(trip);
                             }}
                           >
